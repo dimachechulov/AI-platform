@@ -1,0 +1,21 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.venv
+*.egg-info
+dist/
+build/
+.env
+.git
+.gitignore
+README.md
+.vscode
+.idea
+*.log
+uploads/*
+!uploads/.gitkeep
+# Исключаем venv из копирования, он будет смонтирован через volume
+venv/
