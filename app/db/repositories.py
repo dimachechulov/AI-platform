@@ -488,7 +488,7 @@ def list_chat_sessions_for_user(
     if bot_id is not None:
         query += " AND bot_id = %s"
         params.append(bot_id)
-    query += " ORDER BY created_at DESC"
+    query += " ORDER BY last_activity_at DESC, created_at DESC"
     return db.fetch_all(query, tuple(params))
 
 
@@ -500,11 +500,7 @@ def insert_chat_message(
     content: str,
     metadata: Optional[dict] = None,
 ) -> dict:
-    query = """
-        INSERT INTO chat_messages (session_id, role, content, message_metadata)
-        VALUES (%s, %s, %s, %s)
-        RETURNING *
-    """
+    query = "SELECT * FROM create_chat_message(%s, %s, %s, %s)"
     return db.fetch_one(query, (session_id, role, content, _json(metadata)))
 
 

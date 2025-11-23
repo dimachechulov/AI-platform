@@ -103,6 +103,85 @@ SCHEMA_STATEMENTS: list[str] = [
         embedding vector(768) NOT NULL
     );
     """,
+    """
+    ALTER TABLE IF EXISTS chat_sessions
+        ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    """,
+    """
+    ALTER TABLE IF EXISTS chat_sessions
+        ADD COLUMN IF NOT EXISTS message_count INTEGER NOT NULL DEFAULT 0;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION create_chat_message(
+        p_session_id INTEGER,
+        p_role TEXT,
+        p_content TEXT,
+        p_metadata JSON DEFAULT NULL
+    )
+    RETURNS chat_messages
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+        result chat_messages;
+    BEGIN
+        INSERT INTO chat_messages (session_id, role, content, message_metadata)
+        VALUES (
+            p_session_id,
+            p_role,
+            p_content,
+            COALESCE(p_metadata::jsonb, '{}'::jsonb)
+        )
+        RETURNING * INTO result;
+
+        UPDATE chat_sessions
+        SET last_activity_at = COALESCE(result.created_at, NOW()),
+            message_count = message_count + 1
+        WHERE id = p_session_id;
+
+        RETURN result;
+    END;
+    $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION trg_bots_set_updated_at()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$;
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_bots_set_updated_at ON bots;
+    CREATE TRIGGER trg_bots_set_updated_at
+    BEFORE UPDATE ON bots
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_bots_set_updated_at();
+    """,
+    """
+    CREATE OR REPLACE FUNCTION trg_documents_set_processed_at()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        IF NEW.status = 'processed' THEN
+            NEW.processed_at := COALESCE(NEW.processed_at, NOW());
+        ELSE
+            NEW.processed_at := NULL;
+        END IF;
+        RETURN NEW;
+    END;
+    $$;
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_documents_set_processed_at ON documents;
+    CREATE TRIGGER trg_documents_set_processed_at
+    BEFORE INSERT OR UPDATE ON documents
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_documents_set_processed_at();
+    """,
 ]
 
 INDEX_STATEMENTS: list[str] = [
