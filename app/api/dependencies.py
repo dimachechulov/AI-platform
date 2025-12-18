@@ -38,6 +38,9 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled",
         )
+    
+    # Set user_id in session for audit logging
+    db.set_user_id(user["id"])
 
     return user
 
@@ -47,11 +50,32 @@ async def get_user_workspace(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ) -> Dict:
-    """Проверка доступа к рабочему пространству."""
+    """Проверка доступа к рабочему пространству (только владелец)."""
     workspace = repo.get_workspace_for_owner(
         db,
         workspace_id=workspace_id,
         owner_id=current_user["id"],
+    )
+
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found or access denied",
+        )
+
+    return workspace
+
+
+async def check_workspace_access(
+    workspace_id: int,
+    current_user: Dict,
+    db: DatabaseSession,
+) -> Dict:
+    """Проверка доступа к рабочему пространству (владелец или участник)."""
+    workspace = repo.check_user_workspace_access(
+        db,
+        workspace_id=workspace_id,
+        user_id=current_user["id"],
     )
 
     if not workspace:

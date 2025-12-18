@@ -5,7 +5,13 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, field_validator
 
 from app.api.dependencies import get_current_user
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+    decode_refresh_token,
+)
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
 
@@ -37,7 +43,8 @@ class UserResponse(BaseModel):
 
 class Token(BaseModel):
     access_token: str
-    token_type: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
 class UserProfile(BaseModel):
@@ -93,7 +100,49 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: DatabaseSe
         )
     
     access_token = create_access_token(data={"sub": user["email"], "user_id": user["id"]})
-    return {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token(data={"sub": user["email"], "user_id": user["id"]})
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_token(payload: RefreshRequest, db: DatabaseSession = Depends(get_db)):
+    """Обновление access токена по refresh токену."""
+    refresh_payload = decode_refresh_token(payload.refresh_token)
+    if not refresh_payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    email = refresh_payload.get("sub")
+    user_id = refresh_payload.get("user_id")
+    if not email or not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = repo.get_user_by_email(db, email)
+    if not user or user["id"] != user_id or not user.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(data={"sub": user["email"], "user_id": user["id"]})
+    new_refresh_token = create_refresh_token(data={"sub": user["email"], "user_id": user["id"]})
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.get("/me", response_model=UserProfile)

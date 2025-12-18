@@ -14,7 +14,7 @@ router = APIRouter()
 
 class TransitionCondition(BaseModel):
     """Условие перехода между узлами."""
-    type: Literal["always", "keyword"] = "always"
+    type: Literal["always", "keyword", "llm_routing"] = "always"
     value: Optional[str] = None
 
     @field_validator("value")
@@ -35,6 +35,13 @@ class NodeTransition(BaseModel):
     condition: TransitionCondition = Field(default_factory=TransitionCondition)
 
 
+class ToolTrigger(BaseModel):
+    """Триггер для автоматического вызова инструмента."""
+    tool_name: str
+    keywords: List[str] = Field(default_factory=list, description="Ключевые слова для определения необходимости вызова инструмента")
+    extract_params: Optional[Dict[str, str]] = Field(default=None, description="Правила извлечения параметров из запроса пользователя (например, {'date': 'date_pattern'})")
+
+
 class GraphNode(BaseModel):
     """Узел графа LangGraph."""
     id: str
@@ -44,6 +51,7 @@ class GraphNode(BaseModel):
     rag_settings: Optional[dict] = None
     allowed_document_ids: List[int] = Field(default_factory=list)
     api_tool_ids: List[int] = Field(default_factory=list)
+    tool_triggers: List[ToolTrigger] = Field(default_factory=list, description="Триггеры для автоматического вызова инструментов")
     transitions: List[NodeTransition] = Field(default_factory=list)
 
 
@@ -51,6 +59,50 @@ class BotGraphConfig(BaseModel):
     """Граф конфигурации бота."""
     entry_node_id: str
     nodes: List[GraphNode]
+    
+    @field_validator("nodes", mode="before")
+    @classmethod
+    def parse_nodes(cls, v):
+        """Парсит nodes из JSON строки или Python-литерала если нужно"""
+        if v is None:
+            raise ValueError("nodes field is required and cannot be None")
+        
+        if isinstance(v, str):
+            import json
+            import ast
+            
+            # Сначала пробуем JSON
+            try:
+                parsed = json.loads(v)
+                if not isinstance(parsed, list):
+                    raise ValueError(f"nodes must be a list, got {type(parsed).__name__}")
+                return parsed
+            except (json.JSONDecodeError, TypeError):
+                # Если не JSON, пробуем Python literal (для совместимости со старыми данными)
+                try:
+                    parsed = ast.literal_eval(v)
+                    if not isinstance(parsed, list):
+                        raise ValueError(f"nodes must be a list, got {type(parsed).__name__}")
+                    return parsed
+                except (ValueError, SyntaxError) as e:
+                    raise ValueError(f"Invalid format for nodes: expected JSON array or Python list, got: {v[:100]}...")
+        
+        if not isinstance(v, list):
+            raise ValueError(f"nodes must be a list, got {type(v).__name__}")
+        
+        return v
+    
+    @field_validator("entry_node_id", mode="before")
+    @classmethod
+    def parse_entry_node_id(cls, v):
+        """Удаляет кавычки из entry_node_id если нужно"""
+        if isinstance(v, str) and v.startswith('"') and v.endswith('"'):
+            import json
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return v.strip('"\'')
+        return v
 
 
 class BotCreate(BaseModel):
@@ -122,10 +174,10 @@ async def get_bots(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Получение списка ботов"""
-    return repo.list_bots_for_owner(
+    """Получение списка ботов (доступно владельцам и участникам воркспейса)"""
+    return repo.list_bots_for_user(
         db,
-        owner_id=current_user["id"],
+        user_id=current_user["id"],
         workspace_id=workspace_id,
     )
 
@@ -136,8 +188,8 @@ async def get_bot(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Получение бота по ID"""
-    bot = repo.get_bot_for_owner(db, bot_id=bot_id, owner_id=current_user["id"])
+    """Получение бота по ID (доступно владельцам и участникам воркспейса)"""
+    bot = repo.get_bot_for_user(db, bot_id=bot_id, user_id=current_user["id"])
     
     if not bot:
         raise HTTPException(
@@ -181,7 +233,7 @@ async def update_bot(
         updates["temperature"] = bot_data.temperature
     if bot_data.max_tokens is not None:
         updates["max_tokens"] = bot_data.max_tokens
-    
+    print(updates)
     updated_bot = repo.update_bot_for_owner(
         db,
         bot_id=bot_id,

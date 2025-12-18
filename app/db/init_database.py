@@ -40,7 +40,7 @@ def _connect(database: str):
     return psycopg2.connect(**params)
 
 
-def wait_for_db(max_retries: int = 30, retry_interval: int = 2) -> bool:
+def wait_for_db(max_retries: int = 5, retry_interval: int = 2) -> bool:
     """Ожидание доступности сервера Postgres."""
     for attempt in range(max_retries):
         try:

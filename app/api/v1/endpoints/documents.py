@@ -6,7 +6,7 @@ import aiofiles
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
-from app.api.dependencies import get_current_user, get_user_workspace
+from app.api.dependencies import get_current_user, get_user_workspace, check_workspace_access
 from app.core.config import settings
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
@@ -88,8 +88,8 @@ async def get_documents(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Получение списка документов"""
-    workspace = await get_user_workspace(workspace_id, current_user, db)
+    """Получение списка документов (доступно владельцам и участникам)"""
+    await check_workspace_access(workspace_id, current_user, db)
     
     return repo.list_documents_for_workspace(db, workspace_id)
 
@@ -100,11 +100,11 @@ async def get_document(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Получение документа по ID"""
-    document = repo.get_document_for_owner(
+    """Получение документа по ID (доступно владельцам и участникам)"""
+    document = repo.get_document_for_user(
         db,
         document_id=document_id,
-        owner_id=current_user["id"],
+        user_id=current_user["id"],
     )
     
     if not document:

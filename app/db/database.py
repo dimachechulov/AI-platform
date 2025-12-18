@@ -72,6 +72,13 @@ class DatabaseSession:
 
     def rollback(self) -> None:
         self._conn.rollback()
+    
+    def set_user_id(self, user_id: Optional[int]) -> None:
+        """Set user_id in session for audit logging"""
+        if user_id:
+            self.execute("SET LOCAL app.user_id = %s", (str(user_id),))
+        else:
+            self.execute("SET LOCAL app.user_id = NULL", ())
 
     # Cleanup -----------------------------------------------------------------
     def close(self) -> None:

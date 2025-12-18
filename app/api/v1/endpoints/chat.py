@@ -52,9 +52,8 @@ async def send_message(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Отправка сообщения боту"""
     # Проверка доступа к боту
-    bot = repo.get_bot_for_owner(db, bot_id=chat_data.bot_id, owner_id=current_user["id"])
+    bot = repo.get_bot_for_user(db, bot_id=chat_data.bot_id, user_id=current_user["id"])
     
     if not bot:
         raise HTTPException(
@@ -104,8 +103,7 @@ async def send_message(
     
     history = [
         {"role": msg["role"], "content": msg["content"]}
-        for msg in history_messages[:-1]  # Исключаем только что добавленное сообщение
-    ]
+        for msg in history_messages[:-1] ]
     
     # Обработка через LangChain
     try:
@@ -144,7 +142,7 @@ async def send_message(
             metadata={"error": True},
         )
         db.commit()
-        
+        raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing message: {str(e)}"

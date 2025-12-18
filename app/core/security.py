@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Literal
 import os
 import hashlib
 import hmac
@@ -41,23 +41,57 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return hmac.compare_digest(stored_hash, computed_hash)
 
 
+def _create_token(
+    data: dict,
+    *,
+    expires_delta: timedelta,
+    token_type: Literal["access", "refresh"],
+) -> str:
+    payload = data.copy()
+    payload.update(
+        {
+            "type": token_type,
+            "exp": datetime.utcnow() + expires_delta,
+        }
+    )
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Создание JWT токена"""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    return encoded_jwt
+    """Создание access JWT токена"""
+    return _create_token(
+        data,
+        expires_delta=expires_delta
+        or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        token_type="access",
+    )
 
 
-def decode_access_token(token: str) -> Optional[dict]:
-    """Декодирование JWT токена"""
+def create_refresh_token(data: dict) -> str:
+    """Создание refresh JWT токена"""
+    return _create_token(
+        data,
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        token_type="refresh",
+    )
+
+
+def _decode_token(token: str, expected_type: Literal["access", "refresh"]) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("type") != expected_type:
+            return None
         return payload
     except JWTError:
         return None
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    """Декодирование access JWT"""
+    return _decode_token(token, "access")
+
+
+def decode_refresh_token(token: str) -> Optional[dict]:
+    """Декодирование refresh JWT"""
+    return _decode_token(token, "refresh")
 

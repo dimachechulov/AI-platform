@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from app.api.dependencies import get_current_user, get_user_workspace
+from app.api.dependencies import get_current_user, get_user_workspace, check_workspace_access
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
 
@@ -90,8 +90,8 @@ async def get_api_tools(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Получение списка API инструментов"""
-    workspace = await get_user_workspace(workspace_id, current_user, db)
+    """Получение списка API инструментов (доступно владельцам и участникам)"""
+    await check_workspace_access(workspace_id, current_user, db)
     
     return repo.list_api_tools_for_workspace(db, workspace_id)
 
@@ -102,8 +102,8 @@ async def get_api_tool(
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    """Получение API инструмента по ID"""
-    tool = repo.get_api_tool_for_owner(db, tool_id=tool_id, owner_id=current_user["id"])
+    """Получение API инструмента по ID (доступно владельцам и участникам)"""
+    tool = repo.get_api_tool_for_user(db, tool_id=tool_id, user_id=current_user["id"])
     
     if not tool:
         raise HTTPException(

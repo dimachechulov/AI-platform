@@ -5,7 +5,6 @@ from typing import Any, Dict, List
 
 import numpy as np
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from psycopg2.extras import Json
 
 from app.core.config import settings
 from app.db.database import DatabaseSession, db_session
@@ -36,23 +35,42 @@ class VectorStore:
         metadata: Dict[str, Any],
         embedding: List[float],
     ) -> None:
+        # Insert or update embedding
         db.execute(
             """
-            INSERT INTO document_chunk_embeddings (chunk_id, workspace_id, content, metadata, embedding)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO document_chunk_embeddings (chunk_id, workspace_id, content, embedding)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (chunk_id) DO UPDATE
             SET content = EXCLUDED.content,
-                metadata = EXCLUDED.metadata,
                 embedding = EXCLUDED.embedding
             """,
             (
                 chunk_id,
                 workspace_id,
                 text,
-                Json(metadata),
                 np.asarray(embedding, dtype=np.float32),
             ),
         )
+        
+        # Delete old metadata
+        db.execute(
+            "DELETE FROM document_chunk_metadata WHERE chunk_id = %s",
+            (chunk_id,)
+        )
+        
+        # Insert new metadata
+        if metadata:
+            for key, value in metadata.items():
+                if value is not None:
+                    db.execute(
+                        """
+                        INSERT INTO document_chunk_metadata (chunk_id, metadata_key, metadata_value)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (chunk_id, metadata_key) DO UPDATE
+                        SET metadata_value = EXCLUDED.metadata_value
+                        """,
+                        (chunk_id, key, str(value))
+                    )
 
     def add_chunks(self, workspace_id: int, chunk_payloads: List[Dict[str, Any]]) -> None:
         """Добавление подготовленных chunk'ов в кастомный vector store."""
@@ -103,24 +121,39 @@ class VectorStore:
             try:
                 rows = db.fetch_all(
                     """
-                    SELECT content, metadata
-                    FROM document_chunk_embeddings
-                    WHERE workspace_id = %s
-                    ORDER BY embedding <=> %s
+                    SELECT dce.chunk_id, dce.content
+                    FROM document_chunk_embeddings dce
+                    WHERE dce.workspace_id = %s
+                    ORDER BY dce.embedding <=> %s
                     LIMIT %s
                     """,
                     (workspace_id, np.asarray(query_vector, dtype=np.float32), k),
                 )
-            except Exception:
+                
+                # Fetch metadata for each chunk
+                results = []
+                for row in rows:
+                    chunk_id = row["chunk_id"]
+                    metadata_rows = db.fetch_all(
+                        "SELECT metadata_key, metadata_value FROM document_chunk_metadata WHERE chunk_id = %s",
+                        (chunk_id,)
+                    )
+                    # Build metadata dict
+                    metadata = {m["metadata_key"]: m["metadata_value"] for m in metadata_rows}
+                    
+                    results.append(
+                        VectorSearchResult(
+                            page_content=row["content"],
+                            metadata=metadata,
+                        )
+                    )
+                
+                return results
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to search chunks: {e}")
                 return []
-
-        return [
-            VectorSearchResult(
-                page_content=row["content"],
-                metadata=row.get("metadata") or {},
-            )
-            for row in rows
-        ]
 
 
 vector_store = VectorStore()

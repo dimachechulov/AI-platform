@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, bots, documents, api_tools, chat, workspaces
+from app.api.v1.endpoints import auth, bots, documents, api_tools, chat, workspaces, audit
 
 api_router = APIRouter()
 
@@ -9,4 +9,5 @@ api_router.include_router(bots.router, prefix="/bots", tags=["bots"])
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
 api_router.include_router(api_tools.router, prefix="/api-tools", tags=["api-tools"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
+api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 
