@@ -107,7 +107,7 @@ async def send_message(
     
     # Обработка через LangChain
     try:
-        response_text = await langchain_service.process_message(
+        response_text, llm_usage = await langchain_service.process_message(
             message=chat_data.message,
             history=history,
             bot_config=bot["config"],
@@ -115,6 +115,7 @@ async def send_message(
             db=db,
             workspace_id=bot["workspace_id"]
         )
+        print(llm_usage)
         
         # Сохранение ответа бота
         assistant_message = repo.insert_chat_message(
@@ -122,7 +123,11 @@ async def send_message(
             session_id=session["id"],
             role="assistant",
             content=response_text,
-            metadata={"tokens_used": None}
+            metadata={
+                "input_tokens": llm_usage.get("input_tokens"),
+                "output_tokens": llm_usage.get("output_tokens"),
+                "model": llm_usage.get("model"),
+            },
         )
         db.commit()
         
@@ -142,7 +147,6 @@ async def send_message(
             metadata={"error": True},
         )
         db.commit()
-        raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing message: {str(e)}"

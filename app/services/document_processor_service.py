@@ -1,9 +1,9 @@
 """
-Сервис для фоновой обработки документов с использованием чистого SQL.
+Фоновая обработка документов: чанки в БД и эмбеддинги через LangChain PGVector.
 """
-import asyncio
+import logging
 from datetime import datetime
-from typing import List, Dict
+from typing import Dict, List
 
 from app.db import repositories as repo
 from app.db.database import db_session
@@ -11,6 +11,7 @@ from app.services.document_processor import DocumentProcessor
 from app.services.vector_store import vector_store
 
 document_processor = DocumentProcessor()
+logger = logging.getLogger(__name__)
 
 
 async def process_document_async(document_id: int):
@@ -61,10 +62,9 @@ async def process_document_async(document_id: int):
 
         db.commit()
 
-        vector_store.add_chunks(
-            workspace_id=document["workspace_id"],
-            chunk_payloads=chunk_payloads,
-        )
+        pairs = vector_store.add_chunks(document["workspace_id"], chunk_payloads)
+        for chunk_id, embedding_id in pairs:
+            repo.update_chunk_embedding_id(db, chunk_id=chunk_id, embedding_id=embedding_id)
 
         repo.update_document_status(
             db,
@@ -75,18 +75,19 @@ async def process_document_async(document_id: int):
         db.commit()
 
     except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "Обработка документа завершилась с ошибкой (document_id=%s): %s",
+            document_id,
+            exc,
+        )
         repo.update_document_status(
             db,
             document_id=document_id,
-            status="error",
+            status="failed",
+            processed_at=datetime.utcnow(),
             error_message=str(exc),
         )
         db.commit()
     finally:
         db.close()
-
-
-def process_document_background(document_id: int):
-    """Запуск обработки документа в фоне."""
-    asyncio.create_task(process_document_async(document_id))
-

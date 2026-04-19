@@ -1,12 +1,25 @@
-import { FormEvent, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { FormEvent, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { getBot, updateBot } from "../api";
+import { getBot, updateBot, listDocuments, listApiTools } from "../api";
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
-import { Bot, BotGraphConfig } from "../types";
+import {
+  Bot,
+  BotGraphConfig,
+  DEFAULT_GEMINI_MODEL,
+  validateAllNodesReachableFromEntry,
+  validateAlwaysExclusiveTransitions,
+} from "../types";
+import {
+  BotGraphEditor,
+  DEFAULT_BOT_GRAPH,
+  normalizeBotGraph,
+} from "../components/BotGraphEditor";
+import { GeminiModelSelect } from "../components/GeminiModelSelect";
 
 export function BotEditPage() {
+  const queryClient = useQueryClient();
   const { token } = useAuth();
   const { isOwner } = useWorkspaceContext();
   const { id } = useParams<{ id: string }>();
@@ -17,10 +30,18 @@ export function BotEditPage() {
     queryKey: ["bot", botId],
     queryFn: () => getBot(token || "", botId),
     enabled: !!token && Number.isFinite(botId),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [temperature, setTemperature] = useState("0.7");
+  const [maxTokens, setMaxTokens] = useState(2048);
+  const [graph, setGraph] = useState<BotGraphConfig>(DEFAULT_BOT_GRAPH);
 
   const mutation = useMutation({
     mutationFn: async (payload: Partial<{
@@ -33,83 +54,95 @@ export function BotEditPage() {
       if (!token) throw new Error("Нет токена");
       return updateBot(token, botId, payload);
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
       setSuccess("Сохранено");
-      void botQuery.refetch();
+      queryClient.setQueryData(["bot", botId], updated);
+      setName(updated.name);
+      setSystemPrompt(updated.system_prompt);
+      setTemperature(updated.temperature);
+      setMaxTokens(updated.max_tokens);
+      setGraph(normalizeBotGraph(updated.config));
     },
     onError: (err: unknown) => {
       setError(err instanceof Error ? err.message : "Ошибка обновления");
     },
   });
 
+  /**
+   * Синхронизация с сервером только при смене бота или первом успешном ответе.
+   * Не добавлять botQuery.data в зависимости: при каждом новом объекте из кэша эффект бы
+   * перезатирал локальный граф и поля.
+   */
+  useEffect(() => {
+    if (!botQuery.isSuccess || !botQuery.data || botQuery.data.id !== botId) return;
+    const b = botQuery.data;
+    setName(b.name);
+    setSystemPrompt(b.system_prompt);
+    setTemperature(b.temperature);
+    setMaxTokens(b.max_tokens);
+    setGraph(normalizeBotGraph(b.config));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- см. комментарий выше
+  }, [botId, botQuery.isSuccess]);
+
+  const workspaceForLists = botQuery.data?.workspace_id;
+
+  const documentsQuery = useQuery({
+    queryKey: ["documents", workspaceForLists],
+    queryFn: () => listDocuments(token || "", workspaceForLists!),
+    enabled:
+      !!token &&
+      botQuery.isSuccess &&
+      typeof workspaceForLists === "number" &&
+      workspaceForLists > 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const apiToolsQuery = useQuery({
+    queryKey: ["apiTools", workspaceForLists],
+    queryFn: () => listApiTools(token || "", workspaceForLists!),
+    enabled:
+      !!token &&
+      botQuery.isSuccess &&
+      typeof workspaceForLists === "number" &&
+      workspaceForLists > 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 30 * 60 * 1000,
+  });
+
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    const formData = new FormData(e.currentTarget);
-    const name = String(formData.get("name") || "");
-    const system_prompt = String(formData.get("system_prompt") || "");
-    const temperature = String(formData.get("temperature") || "");
-    const max_tokens = Number(formData.get("max_tokens") || 0);
-    const graphRaw = String(formData.get("graph") || "");
 
-    let graph: BotGraphConfig | undefined;
-    try {
-      graph = JSON.parse(graphRaw);
-      
-      // Убеждаемся, что nodes является массивом
-      if (graph && !Array.isArray(graph.nodes)) {
-        // Если nodes - строка, пытаемся распарсить её
-        if (typeof graph.nodes === "string") {
-          try {
-            graph.nodes = JSON.parse(graph.nodes);
-          } catch {
-            setError("nodes должен быть массивом объектов");
-            return;
-          }
-        } else {
-          setError("nodes должен быть массивом объектов");
-          return;
-        }
-      }
-      
-      // Проверяем структуру graph
-      if (!graph || !graph.entry_node_id || !Array.isArray(graph.nodes)) {
-        setError("Graph должен содержать entry_node_id и nodes (массив)");
-        return;
-      }
-    } catch (err) {
-      setError("Graph должен быть валидным JSON");
+    if (!graph.entry_node_id || !graph.nodes?.length) {
+      setError("Граф должен содержать entry_node_id и хотя бы одну ноду");
+      return;
+    }
+
+    const alwaysErr = validateAlwaysExclusiveTransitions(graph);
+    if (alwaysErr) {
+      setError(alwaysErr);
+      return;
+    }
+    const reachErr = validateAllNodesReachableFromEntry(graph);
+    if (reachErr) {
+      setError(reachErr);
       return;
     }
 
     mutation.mutate({
       name,
-      system_prompt,
+      system_prompt: systemPrompt,
       temperature,
-      max_tokens,
+      max_tokens: maxTokens,
       graph,
     });
   };
 
   const bot = botQuery.data as Bot | undefined;
-
-  // Нормализуем конфигурацию перед отображением
-  const normalizedConfig = bot?.config ? (() => {
-    const config = { ...bot.config };
-    // Убеждаемся, что nodes является массивом
-    if (config.nodes && typeof config.nodes === "string") {
-      try {
-        config.nodes = JSON.parse(config.nodes);
-      } catch {
-        // Если не JSON, оставляем как есть (будет ошибка при сохранении)
-      }
-    }
-    if (!Array.isArray(config.nodes)) {
-      config.nodes = [];
-    }
-    return config;
-  })() : undefined;
 
   return (
     <div className="grid gap-16">
@@ -132,68 +165,106 @@ export function BotEditPage() {
         </div>
       )}
       {bot && (
-        <form className="grid gap-12" onSubmit={handleSubmit}>
-          <div className="grid grid-2 gap-12">
+        <div className="grid gap-12">
+          <form
+            id={`bot-edit-meta-${botId}`}
+            className="grid gap-12"
+            onSubmit={handleSubmit}
+          >
+            <div className="grid grid-2 gap-12">
+              <label>
+                <div className="muted">Название</div>
+                <input
+                  className="input"
+                  name="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  disabled={!isOwner}
+                />
+              </label>
+              <label>
+                <div className="muted">System prompt</div>
+                <input
+                  className="input"
+                  name="system_prompt"
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  required
+                  disabled={!isOwner}
+                />
+              </label>
+            </div>
+            <div className="grid grid-2 gap-12">
+              <label>
+                <div className="muted">Temperature</div>
+                <input
+                  className="input"
+                  name="temperature"
+                  value={temperature}
+                  onChange={(e) => setTemperature(e.target.value)}
+                  required
+                  disabled={!isOwner}
+                />
+              </label>
+              <label>
+                <div className="muted">Max tokens</div>
+                <input
+                  className="input"
+                  name="max_tokens"
+                  type="number"
+                  value={maxTokens}
+                  onChange={(e) => setMaxTokens(Number(e.target.value))}
+                  required
+                  disabled={!isOwner}
+                />
+              </label>
+            </div>
             <label>
-              <div className="muted">Название</div>
-              <input className="input" name="name" defaultValue={bot.name} required disabled={!isOwner} />
-            </label>
-            <label>
-              <div className="muted">System prompt</div>
-              <input
-                className="input"
-                name="system_prompt"
-                defaultValue={bot.system_prompt}
-                required
+              <div className="muted">Модель Gemini (LLM)</div>
+              <GeminiModelSelect
+                token={token}
+                value={graph.gemini_model ?? DEFAULT_GEMINI_MODEL}
+                onChange={(modelId) =>
+                  setGraph({
+                    ...graph,
+                    gemini_model: modelId.trim() || DEFAULT_GEMINI_MODEL,
+                  })
+                }
                 disabled={!isOwner}
               />
             </label>
-          </div>
-          <div className="grid grid-2 gap-12">
-            <label>
-              <div className="muted">Temperature</div>
-              <input
-                className="input"
-                name="temperature"
-                defaultValue={bot.temperature}
-                required
-                disabled={!isOwner}
-              />
-            </label>
-            <label>
-              <div className="muted">Max tokens</div>
-              <input
-                className="input"
-                name="max_tokens"
-                type="number"
-                defaultValue={bot.max_tokens}
-                required
-                disabled={!isOwner}
-              />
-            </label>
-          </div>
-          <label>
-            <div className="muted">Graph (JSON)</div>
-            <textarea
-              className="textarea"
-              name="graph"
-              defaultValue={normalizedConfig ? JSON.stringify(normalizedConfig, null, 2) : ""}
-              rows={14}
-              disabled={!isOwner}
+          </form>
+          <div>
+            <div className="muted" style={{ marginBottom: 8 }}>
+              Граф нод
+            </div>
+            <BotGraphEditor
+              key={botId}
+              graph={graph}
+              onGraphChange={setGraph}
+              documents={documentsQuery.data ?? []}
+              apiTools={apiToolsQuery.data ?? []}
+              readOnly={!isOwner}
+              layoutStorageKey={`bot-graph-layout-${botId}`}
             />
-          </label>
+          </div>
           {error && <div className="error">{error}</div>}
           {success && <div className="muted">{success}</div>}
           {isOwner && (
             <div className="flex" style={{ justifyContent: "flex-end" }}>
-              <button className="btn" type="submit" disabled={mutation.isPending}>
+              <button
+                className="btn"
+                type="submit"
+                form={`bot-edit-meta-${botId}`}
+                disabled={mutation.isPending}
+              >
                 {mutation.isPending ? "Сохраняю..." : "Сохранить"}
               </button>
             </div>
           )}
-        </form>
+        </div>
       )}
     </div>
   );
 }
-

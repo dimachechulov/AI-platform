@@ -2,7 +2,7 @@ import datetime
 from typing import Any, Dict, List, Optional, Literal, Set
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from app.api.dependencies import get_current_user, get_user_workspace
@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 class TransitionCondition(BaseModel):
-    """Условие перехода между узлами."""
+    """Условие перехода между узлами. value — только для keyword; для always/llm_routing — null."""
     type: Literal["always", "keyword", "llm_routing"] = "always"
     value: Optional[str] = None
 
@@ -27,6 +27,12 @@ class TransitionCondition(BaseModel):
         if info.data.get("type") == "keyword" and not value:
             raise ValueError("value is required for 'keyword' transition condition")
         return value
+
+    @model_validator(mode="after")
+    def only_keyword_has_value(self) -> "TransitionCondition":
+        if self.type != "keyword":
+            object.__setattr__(self, "value", None)
+        return self
 
 
 class NodeTransition(BaseModel):
@@ -59,6 +65,13 @@ class BotGraphConfig(BaseModel):
     """Граф конфигурации бота."""
     entry_node_id: str
     nodes: List[GraphNode]
+    gemini_model: Optional[str] = Field(
+        default=None,
+        description=(
+            "Модель Gemini для вызовов LLM (например gemini-2.0-flash). "
+            "Если не задано, используется GEMINI_MODEL из окружения приложения."
+        ),
+    )
     
     @field_validator("nodes", mode="before")
     @classmethod
@@ -316,6 +329,17 @@ def _validate_graph_config(graph: BotGraphConfig, workspace_id: int, db: Databas
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Node '{node.id}' references unknown API tool ids: {sorted(invalid_tools)}",
+            )
+
+        if len(node.transitions) > 1 and any(
+            t.condition.type == "always" for t in node.transitions
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Node '{node.id}': a transition with condition 'always' "
+                    f"cannot coexist with other outgoing transitions"
+                ),
             )
 
         for transition in node.transitions:

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     
     # Gemini API
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-2.5-computer-use-preview-10-2025"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     
     # Application
     DEBUG: bool = True

@@ -210,6 +210,10 @@ SCHEMA_STATEMENTS: list[str] = [
         ADD COLUMN IF NOT EXISTS message_count INTEGER NOT NULL DEFAULT 0 CHECK (message_count >= 0);
     """,
     """
+    ALTER TABLE IF EXISTS document_chunks
+        ADD COLUMN IF NOT EXISTS embedding_id TEXT;
+    """,
+    """
     CREATE OR REPLACE FUNCTION create_chat_message(
         p_session_id INTEGER,
         p_role TEXT,
@@ -290,7 +294,9 @@ SCHEMA_STATEMENTS: list[str] = [
     LANGUAGE plpgsql
     AS $$
     BEGIN
-        IF NEW.status = 'processed'::document_status THEN
+        -- Compare as text: status may be document_status enum or TEXT (SQLAlchemy String).
+        -- Terminal outcomes: success (processed) or failure — record completion time.
+        IF NEW.status::text IN ('processed', 'failed') THEN
             NEW.processed_at := COALESCE(NEW.processed_at, NOW());
         ELSE
             NEW.processed_at := NULL;

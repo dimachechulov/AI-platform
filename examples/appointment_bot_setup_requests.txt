@@ -1,0 +1,200 @@
+# -----------------------------------------------------------------------------
+# Бот записи на услуги: внешний Appointments API + AI-platform
+#
+# Сначала зафиксирована внешняя API (папка ../appointments-api), затем запросы к AI-platform.
+# -----------------------------------------------------------------------------
+
+# =============================================================================
+# ЧАСТЬ 0. Внешний сервис записи (appointments-api) — спецификация
+# =============================================================================
+#
+# База: например http://localhost:8001 (см. appointments-api/README.md)
+#
+# GET /health — проверка сервиса
+#
+# GET /slots
+#   Query (опционально):
+#     date — строка YYYY-MM-DD
+#     service_type — одно из: consultation | demo | installation
+#   Ответ: массив слотов с полями id, date, time, service_type, is_available
+#
+# POST /book
+#   JSON body:
+#     service_type — строка, должна совпадать с service_type выбранного слота
+#     slot_id — int, id слота из GET /slots
+#     customer_name — ФИО
+#     customer_phone — телефон
+#     customer_email — email
+#
+# Перед вызовом POST /book нужно получить актуальный slot_id из GET /slots.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Переменные окружения для запросов к AI-platform
+# -----------------------------------------------------------------------------
+
+# export BASE_URL="http://localhost:8000"
+# export TOKEN="..."   # JWT после POST /api/v1/auth/login
+# export WORKSPACE_ID=1
+
+# Пути к трём файлам RAG (лежат рядом в examples/)
+# SERVICES_FILE="/полный/путь/к/AI-platform/examples/services.txt"
+# PRICES_FILE="..."
+# CONTACTS_FILE="..."
+
+# -----------------------------------------------------------------------------
+# 1. Загрузка трёх документов в workspace (multipart)
+# В ответах сохраните id: условно DOC_SERVICES, DOC_PRICES, DOC_CONTACTS
+# -----------------------------------------------------------------------------
+
+# curl -sS -X POST "${BASE_URL}/api/v1/documents?workspace_id=${WORKSPACE_ID}" \
+#   -H "Authorization: Bearer ${TOKEN}" \
+#   -F "file=@${SERVICES_FILE}"
+
+# curl -sS -X POST "${BASE_URL}/api/v1/documents?workspace_id=${WORKSPACE_ID}" \
+#   -H "Authorization: Bearer ${TOKEN}" \
+#   -F "file=@${PRICES_FILE}"
+
+# curl -sS -X POST "${BASE_URL}/api/v1/documents?workspace_id=${WORKSPACE_ID}" \
+#   -H "Authorization: Bearer ${TOKEN}" \
+#   -F "file=@${CONTACTS_FILE}"
+
+# Дождитесь статуса processed: GET /api/v1/documents/{id}
+
+# -----------------------------------------------------------------------------
+# 2. Создание API tools (интеграция с appointments-api)
+# Сохраните id: TOOL_SLOTS и TOOL_BOOK
+# -----------------------------------------------------------------------------
+
+# --- 2a. Свободные слоты (GET) ---
+# curl -sS -X POST "${BASE_URL}/api/v1/api-tools" \
+#   -H "Authorization: Bearer ${TOKEN}" \
+#   -H "Content-Type: application/json" \
+#   -d @- <<'EOF'
+# {
+#   "workspace_id": 1,
+#   "name": "get_available_slots",
+#   "description": "Получить свободные слоты для записи. Опциональные параметры запроса: date (формат YYYY-MM-DD), service_type (ровно одно из: consultation, demo, installation). Если дата не важна — можно не передавать date; для фильтра по услуге передайте service_type. Ответ содержит id слота, дату, время и тип услуги — slot_id нужен для записи.",
+#   "url": "http://localhost:8001/slots",
+#   "method": "GET",
+#   "headers": { "Content-Type": "application/json" },
+#   "params": {},
+#   "body_schema": {}
+# }
+# EOF
+
+# --- 2b. Создание записи (POST) ---
+# curl -sS -X POST "${BASE_URL}/api/v1/api-tools" \
+#   -H "Authorization: Bearer ${TOKEN}" \
+#   -H "Content-Type: application/json" \
+#   -d @- <<'EOF'
+# {
+#   "workspace_id": 1,
+#   "name": "book_appointment",
+#   "description": "Создать запись на услугу. Обязательные поля JSON: service_type (consultation|demo|installation — должен совпадать с выбранным слотом), slot_id (число из ответа get_available_slots), customer_name, customer_phone, customer_email. Сначала всегда получайте слоты через get_available_slots, затем бронируйте выбранный id.",
+#   "url": "http://localhost:8001/book",
+#   "method": "POST",
+#   "headers": { "Content-Type": "application/json" },
+#   "params": {},
+#   "body_schema": {
+#     "service_type": "consultation",
+#     "slot_id": 0,
+#     "customer_name": "",
+#     "customer_phone": "",
+#     "customer_email": ""
+#   }
+# }
+# EOF
+
+# Если AI-platform в Docker, а appointments-api на хосте — в URL часто нужен host.docker.internal вместо localhost (см. README AI-platform).
+
+# -----------------------------------------------------------------------------
+# 3. Создание бота с графом: маршрутизация → (инфо+RAG | слоты | запись | общие вопросы)
+#
+# Подставьте:
+#   - WORKSPACE_ID
+#   - allowed_document_ids в узле bot_info: [DOC_SERVICES, DOC_PRICES, DOC_CONTACTS]
+#   - api_tool_ids в узле available_slots: [TOOL_SLOTS]
+#   - api_tool_ids в узле booking: [TOOL_SLOTS, TOOL_BOOK]
+# -----------------------------------------------------------------------------
+
+curl -sS -X POST "${BASE_URL:-http://localhost:8000}/api/v1/bots" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d @- <<'EOF'
+{
+  "name": "Бот записи на услуги",
+  "workspace_id": 1,
+  "system_prompt": "Ты ассистент студии записи на услуги. Кратко, вежливо, на языке пользователя. Не выдумывай свободные слоты и факты записи — для слотов и брони используются только инструменты в соответствующем узле. Для сведений об услугах, ценах и контактах в информационном режиме опирайся на поиск по документам.",
+  "temperature": "0.7",
+  "max_tokens": 2048,
+  "graph": {
+    "entry_node_id": "routing",
+    "nodes": [
+      {
+        "id": "routing",
+        "name": "Определение типа запроса",
+        "system_prompt": "Ты маршрутизатор. По сообщению пользователя выбери ровно один следующий узел:\n- bot_info — узнать про бота, как устроена запись, описание услуг, прайс, контакты (справка из документов, без живых слотов из API).\n- available_slots — только посмотреть свободные окна: «какие слоты», «что свободно на дату», расписание без явного запроса оформить запись прямо сейчас.\n- booking — оформить запись: забронировать, оставить имя/телефон/email, подтвердить бронь (в т.ч. если в одном сообщении и время, и контакты).\n- general — приветствия, благодарности, общий разговор не про услуги/цену/слоты/запись.\nОтветь только идентификатором узла: bot_info, available_slots, booking или general.",
+        "use_rag": false,
+        "rag_settings": {},
+        "allowed_document_ids": [],
+        "api_tool_ids": [],
+        "transitions": [
+          { "target_node_id": "bot_info", "condition": { "type": "llm_routing" } },
+          { "target_node_id": "available_slots", "condition": { "type": "llm_routing" } },
+          { "target_node_id": "booking", "condition": { "type": "llm_routing" } },
+          { "target_node_id": "general", "condition": { "type": "llm_routing" } }
+        ]
+      },
+      {
+        "id": "available_slots",
+        "name": "Свободные слоты (только просмотр)",
+        "system_prompt": "Пользователь хочет увидеть свободные временные окна. Вызывай только инструмент get_available_slots. Передай при необходимости date (YYYY-MM-DD) и service_type (consultation, demo или installation). Если дата или тип услуги неясны — уточни у пользователя. Покажи из ответа id слота, дату, время и тип услуги. Не оформляй запись и не вызывай book_appointment — для брони пользователь идёт в сценарий записи.",
+        "use_rag": false,
+        "rag_settings": {},
+        "allowed_document_ids": [],
+        "api_tool_ids": [3],
+        "transitions": []
+      },
+      {
+        "id": "bot_info",
+        "name": "Информация (RAG по услугам, ценам, контактам)",
+        "system_prompt": "Пользователь хочет справочную информацию. Обязательно вызывай инструмент поиска по документам (search_documents) с запросом на языке пользователя. Ответ строй только из найденных фрагментов по файлам услуг, прайса и контактов. Если в базе нет детали — скажи честно. Про свободные слоты и факт записи здесь не придумывай — для записи нужен другой сценарий.",
+        "use_rag": true,
+        "rag_settings": {},
+        "allowed_document_ids": [19, 20, 21],
+        "api_tool_ids": [],
+        "transitions": []
+      },
+      {
+        "id": "booking",
+        "name": "Запись на услугу (appointments-api)",
+        "system_prompt": "Пользователь хочет записаться. Нужны данные по внешнему API: тип услуги service_type (строго: consultation, demo или installation), дата (YYYY-MM-DD), затем вызови get_available_slots с параметрами date и при необходимости service_type. Покажи пользователю варианты из ответа (id, дата, время). После выбора слота собери ФИО (customer_name), телефон (customer_phone), email (customer_email). Если чего-то не хватает — спроси. Для бронирования вызови book_appointment с service_type, slot_id из выбранного слота и контактами. Не выдумывай slot_id — только из ответа get_available_slots. Не пиши код Python; вызывай инструменты в JSON.",
+        "use_rag": false,
+        "rag_settings": {},
+        "allowed_document_ids": [],
+        "api_tool_ids": [3, 4],
+        "transitions": []
+      },
+      {
+        "id": "general",
+        "name": "Общие вопросы",
+        "system_prompt": "Отвечай на общие неслужебные вопросы кратко и дружелюбно. Не используй поиск по документам и внешние API. Если вопрос всё же про услуги, цены, запись или контакты студии — предложи переформулировать или обратиться за информацией в соответствующем разделе.",
+        "use_rag": false,
+        "rag_settings": {},
+        "allowed_document_ids": [],
+        "api_tool_ids": [],
+        "transitions": []
+      }
+    ]
+  }
+}
+EOF
+
+# -----------------------------------------------------------------------------
+# Примечания
+# -----------------------------------------------------------------------------
+# - В узле bot_info замените [1,2,3] на реальные id загруженных документов (services, prices, contacts).
+# - В узле available_slots замените [1] на id API tool get_available_slots.
+# - В узле booking замените [1,2] на id API tools get_available_slots и book_appointment в том же порядке.
+# - Для ограничения RAG только тремя файлами задайте ровно эти три id в allowed_document_ids узла bot_info.

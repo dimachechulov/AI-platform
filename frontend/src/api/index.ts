@@ -5,6 +5,7 @@ import {
   ChatMessage,
   ChatSession,
   DocumentItem,
+  GeminiChatModel,
   UserProfile,
   Workspace,
   WorkspaceUser,
@@ -130,6 +131,12 @@ export async function deleteApiTool(token: string, id: number): Promise<void> {
 
 export async function getApiTool(token: string, id: number): Promise<ApiTool> {
   return apiRequest(`/api-tools/${id}`, { token });
+}
+
+export async function listGeminiChatModels(
+  token: string
+): Promise<GeminiChatModel[]> {
+  return apiRequest("/gemini/chat-models", { token });
 }
 
 export async function listBots(

@@ -7,6 +7,7 @@ import { WorkspacesPage } from "./pages/WorkspacesPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { ApiToolsPage } from "./pages/ApiToolsPage";
 import { BotsPage } from "./pages/BotsPage";
+import { BotsCreatePage } from "./pages/BotsCreatePage";
 import { ChatPage } from "./pages/ChatPage";
 import { BotEditPage } from "./pages/BotEditPage";
 import { ApiToolEditPage } from "./pages/ApiToolEditPage";
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="api-tools" element={<ApiToolsPage />} />
           <Route path="api-tools/:id" element={<ApiToolEditPage />} />
           <Route path="bots" element={<BotsPage />} />
+          <Route path="bots/new" element={<BotsCreatePage />} />
           <Route path="bots/:id" element={<BotEditPage />} />
           <Route path="chat" element={<ChatPage />} />
         </Route>

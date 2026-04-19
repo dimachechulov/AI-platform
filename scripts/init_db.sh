@@ -33,5 +33,8 @@ python -m app.db.init_database
 echo "Running Alembic migrations..."
 alembic upgrade head
 
+# Опционально: выставить condition.value=null для llm_routing в сохранённых графах (см. scripts/strip_llm_routing_condition_values.py)
+# PYTHONPATH=. python scripts/strip_llm_routing_condition_values.py
+
 echo "Database initialization complete!"
 

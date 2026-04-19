@@ -72,9 +72,9 @@ export function DocumentsPage() {
             <button
               className="btn"
               type="submit"
-              disabled={!file || uploadMutation.isLoading}
+              disabled={!file || uploadMutation.isPending}
             >
-              {uploadMutation.isLoading ? "Загружаем..." : "Загрузить"}
+              {uploadMutation.isPending ? "Загружаем..." : "Загрузить"}
             </button>
           </div>
         </form>

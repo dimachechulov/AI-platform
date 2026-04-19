@@ -3,14 +3,14 @@ import os
 from typing import Dict, List, Optional
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from app.api.dependencies import get_current_user, get_user_workspace, check_workspace_access
 from app.core.config import settings
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
-from app.services.document_processor_service import process_document_background
+from app.services.document_processor_service import process_document_async
 from app.services.vector_store import vector_store
 
 router = APIRouter()
@@ -35,6 +35,7 @@ class DocumentResponse(BaseModel):
 @router.post("/", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     workspace_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
@@ -76,8 +77,7 @@ async def upload_document(
     )
     db.commit()
     
-    # Асинхронная обработка документа в фоне
-    process_document_background(document["id"])
+    background_tasks.add_task(process_document_async, document["id"])
     
     return document
 
@@ -140,11 +140,9 @@ async def delete_document(
     if os.path.exists(file_path):
         os.remove(file_path)
     
-    # Удаляем embeddings из vector store
-    chunk_ids = repo.list_document_chunk_ids(db, document_id)
-    vector_store.delete_chunks(document["workspace_id"], chunk_ids)
-    
-    db.execute("DELETE FROM documents WHERE id = %s", (document_id,))
+    embedding_ids = repo.list_chunk_embedding_ids(db, document_id)
+    vector_store.delete_embeddings(document["workspace_id"], embedding_ids)
+    repo.delete_document_by_id(db, document_id)
     db.commit()
     
     return None

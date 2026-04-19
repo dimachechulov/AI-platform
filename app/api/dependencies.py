@@ -5,7 +5,7 @@ from fastapi.security import OAuth2PasswordBearer
 
 from app.core.security import decode_access_token
 from app.db import repositories as repo
-from app.db.database import DatabaseSession, get_db
+from app.db.database import DatabaseSession, get_db, set_session_user_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -39,8 +39,7 @@ async def get_current_user(
             detail="User account is disabled",
         )
     
-    # Set user_id in session for audit logging
-    db.set_user_id(user["id"])
+    set_session_user_id(db, user["id"])
 
     return user
 

@@ -28,12 +28,7 @@ services:
       - bot_platform_network
     volumes:
       - .:/app
-      # - uploads_data:/app/uploads
-      # - ./scripts/start.sh:/start.sh
-      # # Использование локального venv (будет создан автоматически при отсутствии)
-      # - ./venv:/app/venv
-      # # Кэш pip для ускорения установки зависимостей
-      # - pip_cache:/root/.cache/pip
+
     ports:
       - "8000:8000"
     extra_hosts:
@@ -46,17 +41,23 @@ services:
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-robotics-er-1.5-preview}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
       DEBUG: ${DEBUG:-True}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       HOST: ${HOST:-0.0.0.0}
       PORT: ${PORT:-8000}
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-20971520}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-true}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-bot-platform}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    platform: linux/arm64
 
 networks:
   bot_platform_network:
