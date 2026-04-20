@@ -7,11 +7,13 @@ from pydantic_core.core_schema import ValidationInfo
 
 from app.api.dependencies import get_current_user, get_user_workspace
 from app.core.config import settings
-from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
+from app.db.bot_repository import BotRepository
+from app.services.bot_service import BotService
 from app.services.plan_guard import enforce_bot_limit, enforce_model_allowed
 
 router = APIRouter()
+bot_service = BotService(BotRepository())
 
 
 class TransitionCondition(BaseModel):
@@ -170,19 +172,16 @@ async def create_bot(
             detail="System prompt exceeds 4096 characters"
         )
     
-    _validate_graph_config(bot_data.graph, bot_data.workspace_id, db)
-    bot = repo.create_bot(
+    bot_service.validate_graph_config(db, graph=bot_data.graph, workspace_id=bot_data.workspace_id)
+    return bot_service.create_bot(
         db,
         name=bot_data.name,
         workspace_id=bot_data.workspace_id,
         system_prompt=bot_data.system_prompt,
-        config=bot_data.graph.model_dump(),
+        graph=bot_data.graph.model_dump(),
         temperature=bot_data.temperature,
         max_tokens=bot_data.max_tokens,
     )
-    
-    db.commit()
-    return bot
 
 
 @router.get("/", response_model=List[BotResponse])
@@ -192,7 +191,7 @@ async def get_bots(
     db: DatabaseSession = Depends(get_db),
 ):
     """Получение списка ботов (доступно владельцам и участникам воркспейса)"""
-    return repo.list_bots_for_user(
+    return bot_service.list_bots_for_user(
         db,
         user_id=current_user["id"],
         workspace_id=workspace_id,
@@ -206,15 +205,7 @@ async def get_bot(
     db: DatabaseSession = Depends(get_db),
 ):
     """Получение бота по ID (доступно владельцам и участникам воркспейса)"""
-    bot = repo.get_bot_for_user(db, bot_id=bot_id, user_id=current_user["id"])
-    
-    if not bot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bot not found"
-        )
-    
-    return bot
+    return bot_service.get_bot_for_user(db, bot_id=bot_id, user_id=current_user["id"])
 
 
 @router.put("/{bot_id}", response_model=BotResponse)
@@ -225,7 +216,7 @@ async def update_bot(
     db: DatabaseSession = Depends(get_db),
 ):
     """Обновление бота"""
-    existing_bot = repo.get_bot_for_owner(db, bot_id=bot_id, owner_id=current_user["id"])
+    existing_bot = bot_service.repository.get_bot_for_owner(db, bot_id=bot_id, owner_id=current_user["id"])
     
     if not existing_bot:
         raise HTTPException(
@@ -244,27 +235,18 @@ async def update_bot(
             )
         updates["system_prompt"] = bot_data.system_prompt
     if bot_data.graph is not None:
-        _validate_graph_config(bot_data.graph, existing_bot["workspace_id"], db)
+        bot_service.validate_graph_config(db, graph=bot_data.graph, workspace_id=existing_bot["workspace_id"])
         updates["config"] = bot_data.graph.model_dump()
     if bot_data.temperature is not None:
         updates["temperature"] = bot_data.temperature
     if bot_data.max_tokens is not None:
         updates["max_tokens"] = bot_data.max_tokens
-    print(updates)
-    updated_bot = repo.update_bot_for_owner(
+    return bot_service.update_bot_for_owner(
         db,
         bot_id=bot_id,
         owner_id=current_user["id"],
         updates=updates,
     )
-    if not updated_bot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bot not found",
-        )
-    
-    db.commit()
-    return updated_bot
 
 
 @router.delete("/{bot_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -274,85 +256,10 @@ async def delete_bot(
     db: DatabaseSession = Depends(get_db),
 ):
     """Удаление бота"""
-    deleted = repo.delete_bot_for_owner(
+    bot_service.delete_bot_for_owner(
         db,
         bot_id=bot_id,
         owner_id=current_user["id"],
     )
-    
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bot not found"
-        )
-    
-    db.commit()
-    
     return None
-
-
-def _validate_graph_config(graph: BotGraphConfig, workspace_id: int, db: DatabaseSession) -> None:
-    """Проверка конфигурации графа бота."""
-    if not graph.nodes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Graph must contain at least one node",
-        )
-
-    node_ids = [node.id for node in graph.nodes]
-    unique_node_ids = set(node_ids)
-    if len(unique_node_ids) != len(node_ids):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Graph node ids must be unique",
-        )
-
-    if graph.entry_node_id not in unique_node_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Entry node id must reference an existing node",
-        )
-
-    available_doc_ids = {
-        document["id"] for document in repo.list_documents_for_workspace(db, workspace_id)
-    }
-    available_tool_ids = {
-        tool["id"] for tool in repo.list_api_tools_for_workspace(db, workspace_id)
-    }
-
-    for node in graph.nodes:
-        invalid_docs = set(node.allowed_document_ids) - available_doc_ids
-        if invalid_docs:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Node '{node.id}' references unknown document ids: {sorted(invalid_docs)}",
-            )
-
-        invalid_tools = set(node.api_tool_ids) - available_tool_ids
-        if invalid_tools:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Node '{node.id}' references unknown API tool ids: {sorted(invalid_tools)}",
-            )
-
-        if len(node.transitions) > 1 and any(
-            t.condition.type == "always" for t in node.transitions
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Node '{node.id}': a transition with condition 'always' "
-                    f"cannot coexist with other outgoing transitions"
-                ),
-            )
-
-        for transition in node.transitions:
-            if transition.target_node_id not in unique_node_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"Node '{node.id}' has transition to unknown node "
-                        f"'{transition.target_node_id}'"
-                    ),
-                )
 

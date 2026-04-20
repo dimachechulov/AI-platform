@@ -13,11 +13,12 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, create_model
 
 from app.core.config import settings
-from app.db import repositories as repo
 from app.db.database import DatabaseSession
+from app.db.api_tool_repository import ApiToolRepository
 from app.services.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
+api_tool_repo = ApiToolRepository()
 
 
 class ApiToolArgsSchema(BaseModel):
@@ -409,7 +410,7 @@ class LangChainService:
             )
         api_tool_ids = node_config.get("api_tool_ids") or []
         if api_tool_ids:
-            api_tools_db = repo.get_api_tools_by_ids(
+            api_tools_db = api_tool_repo.get_api_tools_by_ids(
                 db,
                 workspace_id=workspace_id,
                 tool_ids=api_tool_ids,

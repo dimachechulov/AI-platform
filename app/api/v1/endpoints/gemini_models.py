@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_current_user
-from app.services.gemini_models_service import list_chat_models_cached
+from app.services.gemini_models_service import GeminiModelsService
 
 router = APIRouter()
+gemini_models_service = GeminiModelsService()
 
 
 class GeminiChatModelItem(BaseModel):
@@ -22,7 +23,7 @@ async def list_gemini_chat_models(
 ):
     """Доступные для ключа приложения чат-модели (generateContent). Список кешируется (lru_cache) до перезапуска."""
     try:
-        data = await asyncio.to_thread(list_chat_models_cached)
+        data = await asyncio.to_thread(gemini_models_service.list_chat_models)
         return data
     except Exception as e:
         raise HTTPException(

@@ -5,14 +5,16 @@ from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.db import repositories as repo
+from app.db.billing_repository import BillingRepository
 from app.services.billing_service import get_plan_limits, is_workspace_subscription_active, normalize_model_name
+
+billing_repo = BillingRepository()
 
 
 def _ensure_billing(db: Session, workspace_id: int) -> dict:
-    billing = repo.get_workspace_billing(db, workspace_id=workspace_id)
+    billing = billing_repo.get_workspace_billing(db, workspace_id=workspace_id)
     if not billing:
-        billing = repo.ensure_workspace_billing(db, workspace_id=workspace_id)
+        billing = billing_repo.ensure_workspace_billing(db, workspace_id=workspace_id)
     return billing
 
 
@@ -31,7 +33,7 @@ def enforce_document_limit(db: Session, workspace_id: int) -> None:
     limit = get_plan_limits(billing["plan"]).max_documents
     if limit is None:
         return
-    current = repo.count_documents_for_workspace(db, workspace_id=workspace_id)
+    current = billing_repo.count_documents_for_workspace(db, workspace_id=workspace_id)
     if current >= limit:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -44,7 +46,7 @@ def enforce_bot_limit(db: Session, workspace_id: int) -> None:
     limit = get_plan_limits(billing["plan"]).max_bots
     if limit is None:
         return
-    current = repo.count_bots_for_workspace(db, workspace_id=workspace_id)
+    current = billing_repo.count_bots_for_workspace(db, workspace_id=workspace_id)
     if current >= limit:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -70,7 +72,7 @@ def enforce_message_limit(db: Session, workspace_id: int) -> None:
     limit = get_plan_limits(billing["plan"]).max_messages
     if limit is None:
         return
-    current = repo.count_messages_for_workspace(db, workspace_id=workspace_id)
+    current = billing_repo.count_messages_for_workspace(db, workspace_id=workspace_id)
     if current >= limit:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

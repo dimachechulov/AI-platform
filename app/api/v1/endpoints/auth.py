@@ -5,18 +5,13 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, field_validator
 
 from app.api.dependencies import get_current_user
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    get_password_hash,
-    verify_password,
-    decode_refresh_token,
-)
-from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
+from app.db.auth_repository import AuthRepository
+from app.services.auth_service import AuthService
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+auth_service = AuthService(AuthRepository())
 
 
 class UserRegister(BaseModel):
@@ -60,48 +55,18 @@ class UserProfile(BaseModel):
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserRegister, db: DatabaseSession = Depends(get_db)):
     """Регистрация нового пользователя"""
-    # Проверка существования пользователя
-    existing_user = repo.get_user_by_email(db, user_data.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Создание пользователя
-    hashed_password = get_password_hash(user_data.password)
-    new_user = repo.create_user(
+    return auth_service.register_user(
         db,
         email=user_data.email,
-        hashed_password=hashed_password,
+        password=user_data.password,
         full_name=user_data.full_name,
     )
-    repo.create_workspace(db, owner_id=new_user["id"], name="My Workspace")
-    db.commit()
-    
-    return new_user
 
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: DatabaseSession = Depends(get_db)):
     """Вход пользователя"""
-    user = repo.get_user_by_email(db, form_data.username)
-    if not user or not verify_password(form_data.password, user["hashed_password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    if not user.get("is_active", True):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is disabled"
-        )
-    
-    access_token = create_access_token(data={"sub": user["email"], "user_id": user["id"]})
-    refresh_token = create_refresh_token(data={"sub": user["email"], "user_id": user["id"]})
-    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+    return auth_service.login_user(db, email=form_data.username, password=form_data.password)
 
 
 class RefreshRequest(BaseModel):
@@ -111,38 +76,7 @@ class RefreshRequest(BaseModel):
 @router.post("/refresh", response_model=Token)
 async def refresh_token(payload: RefreshRequest, db: DatabaseSession = Depends(get_db)):
     """Обновление access токена по refresh токену."""
-    refresh_payload = decode_refresh_token(payload.refresh_token)
-    if not refresh_payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    email = refresh_payload.get("sub")
-    user_id = refresh_payload.get("user_id")
-    if not email or not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token payload",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    user = repo.get_user_by_email(db, email)
-    if not user or user["id"] != user_id or not user.get("is_active", True):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    access_token = create_access_token(data={"sub": user["email"], "user_id": user["id"]})
-    new_refresh_token = create_refresh_token(data={"sub": user["email"], "user_id": user["id"]})
-    return {
-        "access_token": access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "bearer",
-    }
+    return auth_service.refresh_tokens(db, payload.refresh_token)
 
 
 @router.get("/me", response_model=UserProfile)
@@ -151,11 +85,5 @@ async def get_current_user_profile(
     db: DatabaseSession = Depends(get_db),
 ):
     """Получение профиля текущего пользователя"""
-    workspaces = repo.list_workspaces_for_owner(db, current_user["id"])
-    return {
-        "id": current_user["id"],
-        "email": current_user["email"],
-        "full_name": current_user.get("full_name"),
-        "workspaces": [{"id": w["id"], "name": w["name"]} for w in workspaces]
-    }
+    return auth_service.build_user_profile(db, current_user)
 

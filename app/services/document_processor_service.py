@@ -5,12 +5,13 @@ import logging
 from datetime import datetime
 from typing import Dict, List
 
-from app.db import repositories as repo
 from app.db.database import db_session
+from app.db.document_repository import DocumentRepository
 from app.services.document_processor import DocumentProcessor
 from app.services.vector_store import vector_store
 
 document_processor = DocumentProcessor()
+document_repo = DocumentRepository()
 logger = logging.getLogger(__name__)
 
 
@@ -18,7 +19,7 @@ async def process_document_async(document_id: int):
     """Асинхронная обработка документа."""
     db = db_session()
     try:
-        document = repo.get_document_by_id(db, document_id)
+        document = document_repo.get_document_by_id(db, document_id)
         if not document:
             return
 
@@ -29,7 +30,7 @@ async def process_document_async(document_id: int):
 
         chunks = document_processor.split_text_into_chunks(text)
         if not chunks:
-            repo.update_document_status(
+            document_repo.update_document_status(
                 db,
                 document_id=document_id,
                 status="processed",
@@ -40,7 +41,7 @@ async def process_document_async(document_id: int):
 
         chunk_payloads: List[Dict] = []
         for idx, chunk_text in enumerate(chunks):
-            chunk = repo.insert_document_chunk(
+            chunk = document_repo.insert_document_chunk(
                 db,
                 document_id=document_id,
                 chunk_text=chunk_text,
@@ -64,9 +65,9 @@ async def process_document_async(document_id: int):
 
         pairs = vector_store.add_chunks(document["workspace_id"], chunk_payloads)
         for chunk_id, embedding_id in pairs:
-            repo.update_chunk_embedding_id(db, chunk_id=chunk_id, embedding_id=embedding_id)
+            document_repo.update_chunk_embedding_id(db, chunk_id=chunk_id, embedding_id=embedding_id)
 
-        repo.update_document_status(
+        document_repo.update_document_status(
             db,
             document_id=document_id,
             status="processed",
@@ -81,7 +82,7 @@ async def process_document_async(document_id: int):
             document_id,
             exc,
         )
-        repo.update_document_status(
+        document_repo.update_document_status(
             db,
             document_id=document_id,
             status="failed",

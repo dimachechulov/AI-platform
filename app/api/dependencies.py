@@ -4,10 +4,13 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from app.core.security import decode_access_token
-from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db, set_session_user_id
+from app.db.auth_repository import AuthRepository
+from app.db.workspace_repository import WorkspaceRepository
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+auth_repo = AuthRepository()
+workspace_repo = WorkspaceRepository()
 
 
 async def get_current_user(
@@ -29,7 +32,7 @@ async def get_current_user(
     if not email:
         raise credentials_exception
 
-    user = repo.get_user_by_email(db, email)
+    user = auth_repo.get_user_by_email(db, email)
     if not user:
         raise credentials_exception
 
@@ -50,7 +53,7 @@ async def get_user_workspace(
     db: DatabaseSession = Depends(get_db),
 ) -> Dict:
     """Проверка доступа к рабочему пространству (только владелец)."""
-    workspace = repo.get_workspace_for_owner(
+    workspace = workspace_repo.get_workspace_for_owner(
         db,
         workspace_id=workspace_id,
         owner_id=current_user["id"],
@@ -71,7 +74,7 @@ async def check_workspace_access(
     db: DatabaseSession,
 ) -> Dict:
     """Проверка доступа к рабочему пространству (владелец или участник)."""
-    workspace = repo.check_user_workspace_access(
+    workspace = workspace_repo.check_user_workspace_access(
         db,
         workspace_id=workspace_id,
         user_id=current_user["id"],

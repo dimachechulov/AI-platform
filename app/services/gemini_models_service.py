@@ -33,7 +33,7 @@ def _truncate_description(raw: Optional[str]) -> Optional[str]:
 
 
 @lru_cache(maxsize=1)
-def list_chat_models_cached() -> tuple[dict[str, Any], ...]:
+def _list_chat_models_cached() -> tuple[dict[str, Any], ...]:
     """Модели с generateContent; кеш до перезапуска процесса."""
     _ensure_genai_configured()
     rows: List[Dict[str, Any]] = []
@@ -52,3 +52,8 @@ def list_chat_models_cached() -> tuple[dict[str, Any], ...]:
 
     rows.sort(key=lambda r: (r.get("display_name") or r["name"]).lower())
     return tuple(rows)
+
+
+class GeminiModelsService:
+    def list_chat_models(self) -> tuple[dict[str, Any], ...]:
+        return _list_chat_models_cached()
