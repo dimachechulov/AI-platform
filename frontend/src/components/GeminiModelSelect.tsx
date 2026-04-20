@@ -7,6 +7,7 @@ type Props = {
   value: string;
   onChange: (modelId: string) => void;
   disabled?: boolean;
+  allowedModels?: string[];
 };
 
 export function GeminiModelSelect({
@@ -14,6 +15,7 @@ export function GeminiModelSelect({
   value,
   onChange,
   disabled,
+  allowedModels,
 }: Props) {
   const effectiveNoToken = (value.trim() || DEFAULT_GEMINI_MODEL);
   if (!token) {
@@ -35,7 +37,10 @@ export function GeminiModelSelect({
     refetchOnReconnect: false,
   });
 
-  const models = q.data ?? [];
+  const models = (q.data ?? []).filter((m) => {
+    if (!allowedModels || allowedModels.length === 0) return true;
+    return allowedModels.includes(m.name);
+  });
   const byName = new Map(models.map((m) => [m.name, m]));
   const effective = value.trim() || DEFAULT_GEMINI_MODEL;
   const showUnknownFallback =
@@ -73,6 +78,11 @@ export function GeminiModelSelect({
         <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
           Не удалось загрузить список моделей: выберите значение выше или
           обновите страницу.
+        </div>
+      )}
+      {allowedModels && allowedModels.length > 0 && (
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          Доступные модели по тарифу: {allowedModels.join(", ")}
         </div>
       )}
       {selectedMeta?.description && (

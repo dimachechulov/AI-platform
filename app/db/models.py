@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -80,6 +81,55 @@ class WorkspaceUser(Base):
     )
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'member'"))
     added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WorkspaceBilling(Base):
+    __tablename__ = "workspace_billing"
+
+    workspace_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    plan: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'trial'"))
+    subscription_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'trialing'")
+    )
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text)
+    stripe_price_id: Mapped[Optional[str]] = mapped_column(Text)
+    current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    trial_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    balance_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 4), nullable=False, server_default=text("1.0000")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BillingTransaction(Base):
+    __tablename__ = "billing_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    transaction_type: Mapped[str] = mapped_column(Text, nullable=False)
+    amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    related_message_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("chat_messages.id", ondelete="SET NULL")
+    )
+    stripe_event_id: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 

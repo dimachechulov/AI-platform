@@ -726,7 +726,7 @@ function NodeFormModal({
             />
           </label>
           <label>
-            <div className="muted">System prompt</div>
+            <div className="muted">Системный промпт</div>
             <textarea
               className="textarea"
               rows={4}

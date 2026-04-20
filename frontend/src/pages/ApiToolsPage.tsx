@@ -91,9 +91,9 @@ export function ApiToolsPage() {
   return (
     <div className="grid gap-16">
       <div className="page-header">
-        <h2 className="page-title">API Tools</h2>
+        <h2 className="page-title">API-инструменты</h2>
         <div className="muted">
-          Workspace: {activeWorkspaceId ?? "—"}
+          Пространство: {activeWorkspaceId ?? "—"}
           {!isOwner && " · Режим просмотра"}
         </div>
       </div>
@@ -144,7 +144,7 @@ export function ApiToolsPage() {
           </div>
           <div className="grid grid-2 gap-12">
             <label>
-              <div className="muted">Headers (JSON)</div>
+              <div className="muted">Заголовки (JSON)</div>
               <textarea
                 className="textarea"
                 value={form.headers}
@@ -152,7 +152,7 @@ export function ApiToolsPage() {
               />
             </label>
             <label>
-              <div className="muted">Params (JSON)</div>
+              <div className="muted">Параметры (JSON)</div>
               <textarea
                 className="textarea"
                 value={form.params}
@@ -161,7 +161,7 @@ export function ApiToolsPage() {
             </label>
           </div>
           <label>
-            <div className="muted">Body schema (JSON)</div>
+            <div className="muted">Схема body (JSON)</div>
             <textarea
               className="textarea"
               value={form.body_schema}
@@ -184,7 +184,7 @@ export function ApiToolsPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>№</th>
               <th>Имя</th>
               <th>URL</th>
               <th>Метод</th>

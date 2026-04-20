@@ -39,7 +39,7 @@ export function WorkspacesPage() {
     setUserError(null);
     setLoadingUsers(true);
     try {
-      if (!token) throw new Error("No token");
+      if (!token) throw new Error("Нет токена");
       const users = await listWorkspaceUsers(token, workspaceId);
       setWorkspaceUsers(users);
     } catch (err) {
@@ -87,7 +87,7 @@ export function WorkspacesPage() {
   return (
     <div className="grid gap-16">
       <div className="page-header">
-        <h2 className="page-title">Workspaces</h2>
+        <h2 className="page-title">Рабочие пространства</h2>
         <div className="muted">Пользователь: {user?.email}</div>
       </div>
       <div className="card">
@@ -103,7 +103,7 @@ export function WorkspacesPage() {
           </label>
           <div className="flex gap-12" style={{ justifyContent: "flex-end" }}>
             <button className="btn" type="submit" disabled={!name.trim()}>
-              Создать workspace
+              Создать пространство
             </button>
           </div>
         </form>
@@ -113,7 +113,7 @@ export function WorkspacesPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>№</th>
               <th>Название</th>
               <th>Роль</th>
               <th>Создан</th>

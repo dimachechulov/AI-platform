@@ -1,8 +1,9 @@
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
+import { TokenUsagePanel } from "../components/TokenUsagePanel";
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { workspaces, activeWorkspaceId } = useWorkspaceContext();
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
 
@@ -12,6 +13,7 @@ export function DashboardPage() {
         <h2 className="page-title">Добро пожаловать</h2>
         <div className="muted">{user?.email}</div>
       </div>
+      <TokenUsagePanel token={token} workspaceId={activeWorkspaceId ?? null} />
       <div className="grid grid-2">
         <div className="card">
           <div className="muted">Активное пространство</div>

@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   deleteDocument,
+  getWorkspacePlanLimits,
   listDocuments,
   uploadDocument,
 } from "../api";
@@ -18,6 +19,11 @@ export function DocumentsPage() {
   const docsQuery = useQuery({
     queryKey: ["documents", activeWorkspaceId],
     queryFn: () => listDocuments(token || "", activeWorkspaceId || 0),
+    enabled: !!token && !!activeWorkspaceId,
+  });
+  const limitsQuery = useQuery({
+    queryKey: ["workspacePlanLimits", activeWorkspaceId],
+    queryFn: () => getWorkspacePlanLimits(token || "", activeWorkspaceId || 0),
     enabled: !!token && !!activeWorkspaceId,
   });
 
@@ -54,7 +60,7 @@ export function DocumentsPage() {
       <div className="page-header">
         <h2 className="page-title">Документы</h2>
         <div className="muted">
-          Workspace: {activeWorkspaceId ?? "—"}
+          Пространство: {activeWorkspaceId ?? "—"}
           {!isOwner && " · Режим просмотра"}
         </div>
       </div>
@@ -65,6 +71,7 @@ export function DocumentsPage() {
             <div className="muted">Файл (pdf, docx, txt)</div>
             <input
               type="file"
+              disabled={!limitsQuery.data?.can_upload_documents}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </div>
@@ -72,12 +79,23 @@ export function DocumentsPage() {
             <button
               className="btn"
               type="submit"
-              disabled={!file || uploadMutation.isPending}
+              disabled={!file || uploadMutation.isPending || !limitsQuery.data?.can_upload_documents}
+              title={
+                !limitsQuery.data?.can_upload_documents
+                  ? limitsQuery.data?.reason || "Достигнут лимит плана на загрузку документов"
+                  : undefined
+              }
             >
               {uploadMutation.isPending ? "Загружаем..." : "Загрузить"}
             </button>
           </div>
         </form>
+        {!limitsQuery.data?.can_upload_documents && (
+          <div className="error mt-8">
+            {limitsQuery.data?.reason ||
+              `Лимит документов: ${limitsQuery.data?.usage.documents}/${limitsQuery.data?.limits.max_documents ?? "∞"}`}
+          </div>
+        )}
         {error && <div className="error mt-8">{error}</div>}
       </div>
       )}
@@ -86,7 +104,7 @@ export function DocumentsPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>№</th>
               <th>Название</th>
               <th>Статус</th>
               <th>Размер</th>

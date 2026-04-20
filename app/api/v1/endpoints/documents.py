@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
 from app.services.document_processor_service import process_document_async
+from app.services.plan_guard import enforce_document_limit
 from app.services.vector_store import vector_store
 
 router = APIRouter()
@@ -43,6 +44,7 @@ async def upload_document(
     """Загрузка документа"""
     # Проверка доступа к workspace
     workspace = await get_user_workspace(workspace_id, current_user, db)
+    enforce_document_limit(db, workspace["id"])
     
     # Проверка типа файла
     file_type = file.filename.split('.')[-1].lower()

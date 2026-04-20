@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { createBot, listDocuments, listApiTools } from "../api";
+import { createBot, getWorkspacePlanLimits, listDocuments, listApiTools } from "../api";
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
 import {
@@ -44,10 +44,17 @@ export function BotsCreatePage() {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
+  const limitsQuery = useQuery({
+    queryKey: ["workspacePlanLimits", activeWorkspaceId],
+    queryFn: () => getWorkspacePlanLimits(token || "", activeWorkspaceId || 0),
+    enabled: !!token && !!activeWorkspaceId,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!token || !activeWorkspaceId) throw new Error("Нет workspace");
+      if (!token || !activeWorkspaceId) throw new Error("Рабочее пространство не выбрано");
       if (!graph.entry_node_id || !graph.nodes?.length) {
         throw new Error("Задайте граф: нужна стартовая нода и хотя бы одна нода");
       }
@@ -126,7 +133,7 @@ export function BotsCreatePage() {
               />
             </label>
             <label>
-              <div className="muted">System prompt</div>
+              <div className="muted">Системный промпт</div>
               <input
                 className="input"
                 value={form.system_prompt}
@@ -139,7 +146,7 @@ export function BotsCreatePage() {
           </div>
           <div className="grid grid-2 gap-12">
             <label>
-              <div className="muted">Temperature</div>
+              <div className="muted">Температура</div>
               <input
                 className="input"
                 type="text"
@@ -150,7 +157,7 @@ export function BotsCreatePage() {
               />
             </label>
             <label>
-              <div className="muted">Max tokens</div>
+              <div className="muted">Максимум токенов</div>
               <input
                 className="input"
                 type="number"
@@ -166,6 +173,7 @@ export function BotsCreatePage() {
             <GeminiModelSelect
               token={token}
               value={graph.gemini_model ?? DEFAULT_GEMINI_MODEL}
+              allowedModels={limitsQuery.data?.limits.allowed_models}
               onChange={(modelId) =>
                 setGraph({
                   ...graph,
@@ -189,12 +197,23 @@ export function BotsCreatePage() {
           />
         </div>
         {error && <div className="error">{error}</div>}
+        {!limitsQuery.data?.can_create_bots && (
+          <div className="error">
+            {limitsQuery.data?.reason ||
+              `Достигнут лимит ботов: ${limitsQuery.data?.usage.bots}/${limitsQuery.data?.limits.max_bots ?? "∞"}`}
+          </div>
+        )}
         <div className="flex" style={{ justifyContent: "flex-end", marginTop: 12 }}>
           <button
             className="btn"
             type="submit"
             form="bots-create-meta"
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || !limitsQuery.data?.can_create_bots}
+            title={
+              !limitsQuery.data?.can_create_bots
+                ? limitsQuery.data?.reason || "Достигнут лимит плана на создание ботов"
+                : undefined
+            }
           >
             {createMutation.isPending ? "Создаю..." : "Создать бота"}
           </button>

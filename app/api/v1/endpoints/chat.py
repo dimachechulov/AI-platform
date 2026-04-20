@@ -7,7 +7,9 @@ from pydantic import BaseModel
 from app.api.dependencies import get_current_user
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
+from app.services.billing_service import calculate_llm_cost_usd, normalize_model_name
 from app.services.langchain_service import langchain_service
+from app.services.plan_guard import enforce_message_limit, enforce_model_allowed, enforce_positive_balance
 
 router = APIRouter()
 
@@ -60,6 +62,9 @@ async def send_message(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bot not found"
         )
+    enforce_model_allowed(db, bot["workspace_id"], (bot.get("config") or {}).get("gemini_model"))
+    enforce_message_limit(db, bot["workspace_id"])
+    enforce_positive_balance(db, bot["workspace_id"])
     
     # Валидация длины сообщения
     if len(chat_data.message) > 2048:
@@ -129,6 +134,30 @@ async def send_message(
                 "model": llm_usage.get("model"),
             },
         )
+        cost = calculate_llm_cost_usd(
+            model_name=normalize_model_name(llm_usage.get("model")),
+            input_tokens=int(llm_usage.get("input_tokens") or 0),
+            output_tokens=int(llm_usage.get("output_tokens") or 0),
+        )
+        if cost > 0:
+            repo.adjust_workspace_balance(
+                db,
+                workspace_id=bot["workspace_id"],
+                amount_delta=-cost,
+            )
+            repo.create_billing_transaction(
+                db,
+                workspace_id=bot["workspace_id"],
+                transaction_type="usage_charge",
+                amount_usd=-cost,
+                description="LLM usage charge",
+                related_message_id=assistant_message["id"],
+                metadata_json={
+                    "model": normalize_model_name(llm_usage.get("model")),
+                    "input_tokens": int(llm_usage.get("input_tokens") or 0),
+                    "output_tokens": int(llm_usage.get("output_tokens") or 0),
+                },
+            )
         db.commit()
         
         return {

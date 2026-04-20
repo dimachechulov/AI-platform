@@ -160,3 +160,78 @@ export type ChatMessage = {
   created_at: string;
 };
 
+export type TokenUsageBucket = {
+  bucket_start: string;
+  bucket_end: string;
+  input_tokens: number;
+  output_tokens: number;
+};
+
+export type TokenUsageResponse = {
+  workspace_id: number;
+  time_from: string;
+  time_to: string;
+  bucket_minutes: number;
+  bot_id: number | null;
+  model: string | null;
+  totals: { input_tokens: number; output_tokens: number };
+  buckets: TokenUsageBucket[];
+};
+
+export type BillingSummary = {
+  workspace_id: number;
+  plan: "trial" | "lite" | "full";
+  subscription_status: string;
+  balance_usd: string;
+  current_period_end?: string | null;
+  trial_ends_at?: string | null;
+};
+
+export type BillingTransaction = {
+  id: number;
+  transaction_type: string;
+  amount_usd: string;
+  description?: string | null;
+  created_at: string;
+  metadata_json?: Record<string, unknown> | null;
+};
+
+export type SpendingBucket = {
+  bucket_start: string;
+  bucket_end: string;
+  spent_usd: string;
+};
+
+export type SpendingResponse = {
+  workspace_id: number;
+  time_from: string;
+  time_to: string;
+  bucket_minutes: number;
+  spent_total_usd: string;
+  topped_up_total_usd: string;
+  buckets: SpendingBucket[];
+};
+
+export type WorkspacePlanLimits = {
+  workspace_id: number;
+  plan: "trial" | "lite" | "full";
+  subscription_active: boolean;
+  subscription_status: string;
+  balance_usd: string;
+  can_send_messages: boolean;
+  can_upload_documents: boolean;
+  can_create_bots: boolean;
+  limits: {
+    max_documents: number | null;
+    max_bots: number | null;
+    max_messages: number | null;
+    allowed_models: string[];
+  };
+  usage: {
+    documents: number;
+    bots: number;
+    messages: number;
+  };
+  reason?: string | null;
+};
+

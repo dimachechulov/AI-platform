@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { getBot, updateBot, listDocuments, listApiTools } from "../api";
+import { getBot, getWorkspacePlanLimits, updateBot, listDocuments, listApiTools } from "../api";
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
 import {
@@ -111,6 +111,15 @@ export function BotEditPage() {
     refetchOnReconnect: false,
     staleTime: 30 * 60 * 1000,
   });
+  const limitsQuery = useQuery({
+    queryKey: ["workspacePlanLimits", workspaceForLists],
+    queryFn: () => getWorkspacePlanLimits(token || "", workspaceForLists || 0),
+    enabled:
+      !!token &&
+      botQuery.isSuccess &&
+      typeof workspaceForLists === "number" &&
+      workspaceForLists > 0,
+  });
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -184,7 +193,7 @@ export function BotEditPage() {
                 />
               </label>
               <label>
-                <div className="muted">System prompt</div>
+                <div className="muted">Системный промпт</div>
                 <input
                   className="input"
                   name="system_prompt"
@@ -197,7 +206,7 @@ export function BotEditPage() {
             </div>
             <div className="grid grid-2 gap-12">
               <label>
-                <div className="muted">Temperature</div>
+                <div className="muted">Температура</div>
                 <input
                   className="input"
                   name="temperature"
@@ -208,7 +217,7 @@ export function BotEditPage() {
                 />
               </label>
               <label>
-                <div className="muted">Max tokens</div>
+                <div className="muted">Максимум токенов</div>
                 <input
                   className="input"
                   name="max_tokens"
@@ -225,6 +234,7 @@ export function BotEditPage() {
               <GeminiModelSelect
                 token={token}
                 value={graph.gemini_model ?? DEFAULT_GEMINI_MODEL}
+                allowedModels={limitsQuery.data?.limits.allowed_models}
                 onChange={(modelId) =>
                   setGraph({
                     ...graph,

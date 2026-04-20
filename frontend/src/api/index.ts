@@ -6,6 +6,11 @@ import {
   ChatSession,
   DocumentItem,
   GeminiChatModel,
+  TokenUsageResponse,
+  BillingSummary,
+  BillingTransaction,
+  SpendingResponse,
+  WorkspacePlanLimits,
   UserProfile,
   Workspace,
   WorkspaceUser,
@@ -243,6 +248,111 @@ export async function removeUserFromWorkspace(
 ): Promise<void> {
   return apiRequest(`/workspaces/${workspaceId}/users/${userId}`, {
     method: "DELETE",
+    token,
+  });
+}
+
+export async function getTokenUsage(
+  token: string,
+  params: {
+    workspaceId: number;
+    timeFrom?: string;
+    timeTo?: string;
+    bucketMinutes?: number;
+    botId?: number;
+    model?: string;
+  }
+): Promise<TokenUsageResponse> {
+  const sp = new URLSearchParams();
+  sp.set("workspace_id", String(params.workspaceId));
+  if (params.timeFrom) sp.set("time_from", params.timeFrom);
+  if (params.timeTo) sp.set("time_to", params.timeTo);
+  if (params.bucketMinutes != null) {
+    sp.set("bucket_minutes", String(params.bucketMinutes));
+  }
+  if (params.botId != null) sp.set("bot_id", String(params.botId));
+  if (params.model) sp.set("model", params.model);
+  return apiRequest(`/usage/tokens?${sp.toString()}`, { token });
+}
+
+export async function listTokenUsageModels(
+  token: string,
+  params: {
+    workspaceId: number;
+    timeFrom?: string;
+    timeTo?: string;
+    botId?: number;
+  }
+): Promise<{ models: string[] }> {
+  const sp = new URLSearchParams();
+  sp.set("workspace_id", String(params.workspaceId));
+  if (params.timeFrom) sp.set("time_from", params.timeFrom);
+  if (params.timeTo) sp.set("time_to", params.timeTo);
+  if (params.botId != null) sp.set("bot_id", String(params.botId));
+  return apiRequest(`/usage/tokens/models?${sp.toString()}`, { token });
+}
+
+export async function getBillingSummary(
+  token: string,
+  workspaceId: number
+): Promise<BillingSummary> {
+  return apiRequest(`/billing/summary?workspace_id=${workspaceId}`, { token });
+}
+
+export async function listBillingTransactions(
+  token: string,
+  workspaceId: number
+): Promise<BillingTransaction[]> {
+  return apiRequest(`/billing/transactions?workspace_id=${workspaceId}`, { token });
+}
+
+export async function getSpendingUsage(
+  token: string,
+  params: { workspaceId: number; timeFrom?: string; timeTo?: string; bucketMinutes?: number }
+): Promise<SpendingResponse> {
+  const sp = new URLSearchParams();
+  sp.set("workspace_id", String(params.workspaceId));
+  if (params.timeFrom) sp.set("time_from", params.timeFrom);
+  if (params.timeTo) sp.set("time_to", params.timeTo);
+  if (params.bucketMinutes != null) sp.set("bucket_minutes", String(params.bucketMinutes));
+  return apiRequest(`/billing/spending?${sp.toString()}`, { token });
+}
+
+export async function createSubscriptionCheckout(
+  token: string,
+  payload: { workspace_id: number; plan: "lite" | "full" }
+): Promise<{ url: string }> {
+  return apiRequest("/billing/checkout/subscription", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ workspace_id: payload.workspace_id, plan: payload.plan }),
+  });
+}
+
+export async function createTopupCheckout(
+  token: string,
+  payload: { workspace_id: number; amount_usd: string }
+): Promise<{ url: string }> {
+  return apiRequest("/billing/checkout/topup", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ workspace_id: payload.workspace_id, amount_usd: payload.amount_usd }),
+  });
+}
+
+export async function getWorkspacePlanLimits(
+  token: string,
+  workspaceId: number
+): Promise<WorkspacePlanLimits> {
+  return apiRequest(`/billing/limits?workspace_id=${workspaceId}`, { token });
+}
+
+export async function switchWorkspaceToTrial(
+  token: string,
+  workspaceId: number
+): Promise<BillingSummary> {
+  return apiRequest(`/billing/plan/trial?workspace_id=${workspaceId}`, {
+    method: "POST",
     token,
   });
 }

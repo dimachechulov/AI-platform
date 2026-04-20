@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from pydantic_core.core_schema import ValidationInfo
 
 from app.api.dependencies import get_current_user, get_user_workspace
+from app.core.config import settings
 from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
+from app.services.plan_guard import enforce_bot_limit, enforce_model_allowed
 
 router = APIRouter()
 
@@ -158,6 +160,8 @@ async def create_bot(
     """Создание нового бота"""
     # Проверка доступа к workspace
     workspace = await get_user_workspace(bot_data.workspace_id, current_user, db)
+    enforce_bot_limit(db, workspace["id"])
+    enforce_model_allowed(db, workspace["id"], bot_data.graph.gemini_model or settings.GEMINI_MODEL)
     
     # Валидация системного промпта
     if len(bot_data.system_prompt) > 4096:

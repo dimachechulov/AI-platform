@@ -64,6 +64,35 @@ SCHEMA_STATEMENTS: list[str] = [
     );
     """,
     """
+    CREATE TABLE IF NOT EXISTS workspace_billing (
+        workspace_id INTEGER PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        plan TEXT NOT NULL DEFAULT 'trial' CHECK (plan IN ('trial', 'lite', 'full')),
+        subscription_status TEXT NOT NULL DEFAULT 'trialing',
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        stripe_price_id TEXT,
+        current_period_end TIMESTAMPTZ,
+        trial_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        trial_ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '14 days',
+        balance_usd NUMERIC(12,4) NOT NULL DEFAULT 1.0000,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS billing_transactions (
+        id SERIAL PRIMARY KEY,
+        workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        transaction_type TEXT NOT NULL,
+        amount_usd NUMERIC(12,4) NOT NULL,
+        description TEXT,
+        related_message_id INTEGER,
+        stripe_event_id TEXT,
+        metadata_json JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    """,
+    """
     CREATE TABLE IF NOT EXISTS bots (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
@@ -212,6 +241,59 @@ SCHEMA_STATEMENTS: list[str] = [
     """
     ALTER TABLE IF EXISTS document_chunks
         ADD COLUMN IF NOT EXISTS embedding_id TEXT;
+    """,
+    """
+    ALTER TABLE IF EXISTS workspace_billing
+        ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    """,
+    """
+    ALTER TABLE IF EXISTS workspace_billing
+        ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '14 days';
+    """,
+    """
+    ALTER TABLE IF EXISTS workspace_billing
+        ADD COLUMN IF NOT EXISTS balance_usd NUMERIC(12,4) NOT NULL DEFAULT 1.0000;
+    """,
+    """
+    ALTER TABLE IF EXISTS workspace_billing
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    """,
+    """
+    ALTER TABLE IF EXISTS workspace_billing
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.constraint_column_usage
+            WHERE table_name = 'workspace_billing'
+              AND constraint_name = 'workspace_billing_plan_check'
+        ) THEN
+            ALTER TABLE workspace_billing
+                ADD CONSTRAINT workspace_billing_plan_check
+                CHECK (plan IN ('trial', 'lite', 'full'));
+        END IF;
+    END $$;
+    """,
+    """
+    CREATE OR REPLACE FUNCTION trg_workspace_billing_set_updated_at()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$;
+    """,
+    """
+    DROP TRIGGER IF EXISTS trg_workspace_billing_set_updated_at ON workspace_billing;
+    CREATE TRIGGER trg_workspace_billing_set_updated_at
+    BEFORE UPDATE ON workspace_billing
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_workspace_billing_set_updated_at();
     """,
     """
     CREATE OR REPLACE FUNCTION create_chat_message(
@@ -443,6 +525,8 @@ INDEX_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces (owner_id);",
     "CREATE INDEX IF NOT EXISTS idx_workspace_users_user ON workspace_users (user_id);",
     "CREATE INDEX IF NOT EXISTS idx_workspace_users_workspace ON workspace_users (workspace_id);",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_billing_plan ON workspace_billing (plan);",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_billing_subscription_status ON workspace_billing (subscription_status);",
     "CREATE INDEX IF NOT EXISTS idx_bots_workspace ON bots (workspace_id);",
     "CREATE INDEX IF NOT EXISTS idx_bot_config_bot ON bot_config (bot_id);",
     "CREATE INDEX IF NOT EXISTS idx_bot_config_key ON bot_config (bot_id, config_key);",
@@ -472,6 +556,9 @@ INDEX_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_table ON audit_logs (table_name);",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action);",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_billing_transactions_workspace ON billing_transactions (workspace_id);",
+    "CREATE INDEX IF NOT EXISTS idx_billing_transactions_created_at ON billing_transactions (created_at DESC);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_transactions_stripe_event ON billing_transactions (stripe_event_id) WHERE stripe_event_id IS NOT NULL;",
 ]
 
 

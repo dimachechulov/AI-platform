@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -10,6 +10,7 @@ from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.orm import Session, aliased
 
 from app.db import models as m
+from app.core.config import settings
 
 
 # -----------------------------------------------------------------------------
@@ -31,6 +32,37 @@ def _workspace_to_dict(row: m.Workspace) -> dict:
         "id": row.id,
         "name": row.name,
         "owner_id": row.owner_id,
+        "created_at": row.created_at,
+    }
+
+
+def _workspace_billing_to_dict(row: m.WorkspaceBilling) -> dict:
+    return {
+        "workspace_id": row.workspace_id,
+        "plan": row.plan,
+        "subscription_status": row.subscription_status,
+        "stripe_customer_id": row.stripe_customer_id,
+        "stripe_subscription_id": row.stripe_subscription_id,
+        "stripe_price_id": row.stripe_price_id,
+        "current_period_end": row.current_period_end,
+        "trial_started_at": row.trial_started_at,
+        "trial_ends_at": row.trial_ends_at,
+        "balance_usd": Decimal(row.balance_usd),
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _billing_transaction_to_dict(row: m.BillingTransaction) -> dict:
+    return {
+        "id": row.id,
+        "workspace_id": row.workspace_id,
+        "transaction_type": row.transaction_type,
+        "amount_usd": Decimal(row.amount_usd),
+        "description": row.description,
+        "related_message_id": row.related_message_id,
+        "stripe_event_id": row.stripe_event_id,
+        "metadata_json": row.metadata_json,
         "created_at": row.created_at,
     }
 
@@ -213,6 +245,7 @@ def create_workspace(db: Session, *, owner_id: int, name: str) -> dict:
     w = m.Workspace(name=name, owner_id=owner_id)
     db.add(w)
     db.flush()
+    ensure_workspace_billing(db, workspace_id=w.id)
     return _workspace_to_dict(w)
 
 
@@ -358,6 +391,134 @@ def list_all_workspaces_for_user(db: Session, user_id: int) -> list[dict]:
         }
         for ws, role in items
     ]
+
+
+# -----------------------------------------------------------------------------
+# Billing
+# -----------------------------------------------------------------------------
+def ensure_workspace_billing(db: Session, *, workspace_id: int) -> dict:
+    row = db.get(m.WorkspaceBilling, workspace_id)
+    if not row:
+        row = m.WorkspaceBilling(
+            workspace_id=workspace_id,
+            plan="trial",
+            subscription_status="trialing",
+            trial_started_at=datetime.now(timezone.utc),
+            trial_ends_at=datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=settings.TRIAL_DAYS),
+            balance_usd=Decimal("1.0000"),
+        )
+        db.add(row)
+        db.flush()
+        row = db.get(m.WorkspaceBilling, workspace_id)
+    return _workspace_billing_to_dict(row)
+
+
+def get_workspace_billing(db: Session, *, workspace_id: int) -> Optional[dict]:
+    row = db.get(m.WorkspaceBilling, workspace_id)
+    return _workspace_billing_to_dict(row) if row else None
+
+
+def get_workspace_billing_by_customer_id(db: Session, *, stripe_customer_id: str) -> Optional[dict]:
+    row = db.scalars(
+        select(m.WorkspaceBilling).where(m.WorkspaceBilling.stripe_customer_id == stripe_customer_id)
+    ).first()
+    return _workspace_billing_to_dict(row) if row else None
+
+
+def get_workspace_billing_by_subscription_id(
+    db: Session, *, stripe_subscription_id: str
+) -> Optional[dict]:
+    row = db.scalars(
+        select(m.WorkspaceBilling).where(m.WorkspaceBilling.stripe_subscription_id == stripe_subscription_id)
+    ).first()
+    return _workspace_billing_to_dict(row) if row else None
+
+
+def update_workspace_billing(db: Session, *, workspace_id: int, updates: Dict[str, Any]) -> Optional[dict]:
+    row = db.get(m.WorkspaceBilling, workspace_id)
+    if not row:
+        return None
+    for k, v in updates.items():
+        setattr(row, k, v)
+    db.flush()
+    return _workspace_billing_to_dict(row)
+
+
+def create_billing_transaction(
+    db: Session,
+    *,
+    workspace_id: int,
+    transaction_type: str,
+    amount_usd: Decimal,
+    description: Optional[str] = None,
+    related_message_id: Optional[int] = None,
+    stripe_event_id: Optional[str] = None,
+    metadata_json: Optional[dict] = None,
+) -> dict:
+    row = m.BillingTransaction(
+        workspace_id=workspace_id,
+        transaction_type=transaction_type,
+        amount_usd=amount_usd,
+        description=description,
+        related_message_id=related_message_id,
+        stripe_event_id=stripe_event_id,
+        metadata_json=metadata_json,
+    )
+    db.add(row)
+    db.flush()
+    return _billing_transaction_to_dict(row)
+
+
+def list_billing_transactions(db: Session, *, workspace_id: int, limit: int = 100) -> list[dict]:
+    rows = db.scalars(
+        select(m.BillingTransaction)
+        .where(m.BillingTransaction.workspace_id == workspace_id)
+        .order_by(m.BillingTransaction.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [_billing_transaction_to_dict(r) for r in rows]
+
+
+def has_billing_transaction_for_stripe_event(db: Session, *, stripe_event_id: str) -> bool:
+    count = db.scalar(
+        select(func.count())
+        .select_from(m.BillingTransaction)
+        .where(m.BillingTransaction.stripe_event_id == stripe_event_id)
+    )
+    return bool(count)
+
+
+def adjust_workspace_balance(
+    db: Session,
+    *,
+    workspace_id: int,
+    amount_delta: Decimal,
+) -> Optional[dict]:
+    row = db.get(m.WorkspaceBilling, workspace_id)
+    if not row:
+        return None
+    row.balance_usd = Decimal(row.balance_usd) + Decimal(amount_delta)
+    db.flush()
+    return _workspace_billing_to_dict(row)
+
+
+def count_documents_for_workspace(db: Session, *, workspace_id: int) -> int:
+    return int(db.scalar(select(func.count()).select_from(m.Document).where(m.Document.workspace_id == workspace_id)) or 0)
+
+
+def count_bots_for_workspace(db: Session, *, workspace_id: int) -> int:
+    return int(db.scalar(select(func.count()).select_from(m.Bot).where(m.Bot.workspace_id == workspace_id)) or 0)
+
+
+def count_messages_for_workspace(db: Session, *, workspace_id: int) -> int:
+    count = db.scalar(
+        select(func.count())
+        .select_from(m.ChatMessage)
+        .join(m.ChatSession, m.ChatSession.id == m.ChatMessage.session_id)
+        .join(m.Bot, m.Bot.id == m.ChatSession.bot_id)
+        .where(m.Bot.workspace_id == workspace_id, m.ChatMessage.role == "user")
+    )
+    return int(count or 0)
 
 
 # -----------------------------------------------------------------------------
@@ -1136,6 +1297,284 @@ def get_audit_log_by_id(db: Session, log_id: int) -> Optional[dict]:
         "user_email": email,
         "user_name": name,
     }
+
+
+# -----------------------------------------------------------------------------
+# Token usage (LLM metadata on assistant messages)
+# -----------------------------------------------------------------------------
+
+_TOKEN_USAGE_PER_MSG_CTE = """
+WITH per_msg AS (
+  SELECT
+    cm.id AS message_id,
+    cm.created_at,
+    s.bot_id,
+    COALESCE(
+      MAX(
+        CASE
+          WHEN cmm.metadata_key = 'input_tokens' AND cmm.metadata_value ~ '^[0-9]+$'
+          THEN cmm.metadata_value::bigint
+        END
+      ),
+      0
+    )::bigint AS input_tokens,
+    COALESCE(
+      MAX(
+        CASE
+          WHEN cmm.metadata_key = 'output_tokens' AND cmm.metadata_value ~ '^[0-9]+$'
+          THEN cmm.metadata_value::bigint
+        END
+      ),
+      0
+    )::bigint AS output_tokens,
+    MAX(CASE WHEN cmm.metadata_key = 'model' THEN cmm.metadata_value END) AS model_name
+  FROM chat_messages cm
+  INNER JOIN chat_sessions s ON s.id = cm.session_id
+  INNER JOIN bots b ON b.id = s.bot_id
+  LEFT JOIN chat_message_metadata cmm ON cmm.message_id = cm.id
+  WHERE cm.role = 'assistant'
+    AND s.user_id = :user_id
+    AND b.workspace_id = :workspace_id
+    AND cm.created_at >= :time_from AND cm.created_at < :time_to
+  GROUP BY cm.id, cm.created_at, s.bot_id
+),
+filtered AS (
+  SELECT *
+  FROM per_msg
+  WHERE (input_tokens > 0 OR output_tokens > 0)
+    AND (:bot_id IS NULL OR bot_id = :bot_id)
+    AND (:model IS NULL OR model_name = :model)
+)
+"""
+
+
+def get_token_usage_totals(
+    db: Session,
+    *,
+    user_id: int,
+    workspace_id: int,
+    time_from: datetime,
+    time_to: datetime,
+    bot_id: Optional[int],
+    model: Optional[str],
+) -> Dict[str, int]:
+    sql = text(
+        _TOKEN_USAGE_PER_MSG_CTE
+        + """
+SELECT COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+       COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens
+FROM filtered
+"""
+    )
+    row = db.execute(
+        sql,
+        {
+            "user_id": user_id,
+            "workspace_id": workspace_id,
+            "time_from": time_from,
+            "time_to": time_to,
+            "bot_id": bot_id,
+            "model": model,
+        },
+    ).mappings().one()
+    return {"input_tokens": int(row["input_tokens"]), "output_tokens": int(row["output_tokens"])}
+
+
+def get_token_usage_buckets(
+    db: Session,
+    *,
+    user_id: int,
+    workspace_id: int,
+    time_from: datetime,
+    time_to: datetime,
+    bucket_minutes: int,
+    bot_id: Optional[int],
+    model: Optional[str],
+) -> List[Dict[str, Any]]:
+    sql = text(
+        _TOKEN_USAGE_PER_MSG_CTE
+        + """
+, bucketed AS (
+  SELECT
+    date_trunc('hour', created_at)
+      + (floor(extract(minute from created_at) / :bucket_minutes) * :bucket_minutes)
+      * interval '1 minute' AS bucket_start,
+    input_tokens,
+    output_tokens
+  FROM filtered
+)
+SELECT bucket_start,
+       SUM(input_tokens)::bigint AS input_tokens,
+       SUM(output_tokens)::bigint AS output_tokens
+FROM bucketed
+GROUP BY bucket_start
+ORDER BY bucket_start
+"""
+    )
+    rows = db.execute(
+        sql,
+        {
+            "user_id": user_id,
+            "workspace_id": workspace_id,
+            "time_from": time_from,
+            "time_to": time_to,
+            "bot_id": bot_id,
+            "model": model,
+            "bucket_minutes": bucket_minutes,
+        },
+    ).mappings().all()
+    return [
+        {
+            "bucket_start": r["bucket_start"],
+            "input_tokens": int(r["input_tokens"]),
+            "output_tokens": int(r["output_tokens"]),
+        }
+        for r in rows
+    ]
+
+
+_TOKEN_USAGE_MODEL_LIST_CTE = """
+WITH per_msg AS (
+  SELECT
+    cm.id AS message_id,
+    cm.created_at,
+    s.bot_id,
+    COALESCE(
+      MAX(
+        CASE
+          WHEN cmm.metadata_key = 'input_tokens' AND cmm.metadata_value ~ '^[0-9]+$'
+          THEN cmm.metadata_value::bigint
+        END
+      ),
+      0
+    )::bigint AS input_tokens,
+    COALESCE(
+      MAX(
+        CASE
+          WHEN cmm.metadata_key = 'output_tokens' AND cmm.metadata_value ~ '^[0-9]+$'
+          THEN cmm.metadata_value::bigint
+        END
+      ),
+      0
+    )::bigint AS output_tokens,
+    MAX(CASE WHEN cmm.metadata_key = 'model' THEN cmm.metadata_value END) AS model_name
+  FROM chat_messages cm
+  INNER JOIN chat_sessions s ON s.id = cm.session_id
+  INNER JOIN bots b ON b.id = s.bot_id
+  LEFT JOIN chat_message_metadata cmm ON cmm.message_id = cm.id
+  WHERE cm.role = 'assistant'
+    AND s.user_id = :user_id
+    AND b.workspace_id = :workspace_id
+    AND cm.created_at >= :time_from AND cm.created_at < :time_to
+  GROUP BY cm.id, cm.created_at, s.bot_id
+),
+with_usage AS (
+  SELECT *
+  FROM per_msg
+  WHERE (input_tokens > 0 OR output_tokens > 0)
+    AND (:bot_id IS NULL OR bot_id = :bot_id)
+)
+"""
+
+
+def list_distinct_models_for_token_usage(
+    db: Session,
+    *,
+    user_id: int,
+    workspace_id: int,
+    time_from: datetime,
+    time_to: datetime,
+    bot_id: Optional[int],
+) -> List[str]:
+    """Модели из метаданных ответов ассистента (для фильтра на UI)."""
+    sql = text(
+        _TOKEN_USAGE_MODEL_LIST_CTE
+        + """
+SELECT DISTINCT model_name
+FROM with_usage
+WHERE model_name IS NOT NULL
+ORDER BY model_name
+"""
+    )
+    rows = db.execute(
+        sql,
+        {
+            "user_id": user_id,
+            "workspace_id": workspace_id,
+            "time_from": time_from,
+            "time_to": time_to,
+            "bot_id": bot_id,
+        },
+    ).all()
+    return [r[0] for r in rows if r[0]]
+
+
+def get_spending_totals(
+    db: Session,
+    *,
+    workspace_id: int,
+    time_from: datetime,
+    time_to: datetime,
+) -> Dict[str, Decimal]:
+    row = db.execute(
+        text(
+            """
+SELECT COALESCE(SUM(CASE WHEN amount_usd < 0 THEN -amount_usd ELSE 0 END), 0) AS spent_usd,
+       COALESCE(SUM(CASE WHEN amount_usd > 0 THEN amount_usd ELSE 0 END), 0) AS topped_up_usd
+FROM billing_transactions
+WHERE workspace_id = :workspace_id
+  AND created_at >= :time_from
+  AND created_at < :time_to
+"""
+        ),
+        {
+            "workspace_id": workspace_id,
+            "time_from": time_from,
+            "time_to": time_to,
+        },
+    ).mappings().one()
+    return {
+        "spent_usd": Decimal(row["spent_usd"] or 0),
+        "topped_up_usd": Decimal(row["topped_up_usd"] or 0),
+    }
+
+
+def get_spending_buckets(
+    db: Session,
+    *,
+    workspace_id: int,
+    time_from: datetime,
+    time_to: datetime,
+    bucket_minutes: int,
+) -> List[Dict[str, Any]]:
+    rows = db.execute(
+        text(
+            """
+WITH bucketed AS (
+  SELECT
+    date_trunc('hour', created_at)
+      + (floor(extract(minute from created_at) / :bucket_minutes) * :bucket_minutes) * interval '1 minute' AS bucket_start,
+    amount_usd
+  FROM billing_transactions
+  WHERE workspace_id = :workspace_id
+    AND created_at >= :time_from
+    AND created_at < :time_to
+)
+SELECT bucket_start,
+       COALESCE(SUM(CASE WHEN amount_usd < 0 THEN -amount_usd ELSE 0 END), 0) AS spent_usd
+FROM bucketed
+GROUP BY bucket_start
+ORDER BY bucket_start
+"""
+        ),
+        {
+            "workspace_id": workspace_id,
+            "time_from": time_from,
+            "time_to": time_to,
+            "bucket_minutes": bucket_minutes,
+        },
+    ).mappings().all()
+    return [{"bucket_start": r["bucket_start"], "spent_usd": Decimal(r["spent_usd"] or 0)} for r in rows]
 
 
 def count_audit_logs(

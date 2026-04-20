@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { deleteBot, listBots } from "../api";
+import { deleteBot, getWorkspacePlanLimits, listBots } from "../api";
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
 import { Bot } from "../types";
@@ -26,6 +26,11 @@ export function BotsPage() {
     },
     onSuccess: () => void botsQuery.refetch(),
   });
+  const limitsQuery = useQuery({
+    queryKey: ["workspacePlanLimits", activeWorkspaceId],
+    queryFn: () => getWorkspacePlanLimits(token || "", activeWorkspaceId || 0),
+    enabled: !!token && !!activeWorkspaceId,
+  });
 
   const handleEdit = (bot: Bot) => {
     navigate(`/app/bots/${bot.id}`);
@@ -44,24 +49,42 @@ export function BotsPage() {
         <h2 className="page-title">Боты</h2>
         <div className="actions flex gap-8" style={{ alignItems: "center" }}>
           <div className="muted">
-            Workspace: {activeWorkspaceId ?? "—"} · Всего: {stats.total}
+            Пространство: {activeWorkspaceId ?? "—"} · Всего: {stats.total}
             {!isOwner && " · Режим просмотра"}
           </div>
           {isOwner && (
-            <button className="btn" type="button" onClick={() => navigate("/app/bots/new")}>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => navigate("/app/bots/new")}
+              disabled={!limitsQuery.data?.can_create_bots}
+              title={
+                !limitsQuery.data?.can_create_bots
+                  ? limitsQuery.data?.reason || "Достигнут лимит плана на создание ботов"
+                  : undefined
+              }
+            >
               Создать бота
             </button>
           )}
         </div>
       </div>
+      {isOwner && !limitsQuery.data?.can_create_bots && (
+        <div className="card">
+          <div className="error">
+            {limitsQuery.data?.reason ||
+              `Достигнут лимит ботов: ${limitsQuery.data?.usage.bots}/${limitsQuery.data?.limits.max_bots ?? "∞"}`}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>№</th>
               <th>Имя</th>
-              <th>Workspace</th>
+              <th>Пространство</th>
               <th>Создан</th>
               <th></th>
             </tr>
