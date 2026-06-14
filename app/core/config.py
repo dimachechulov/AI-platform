@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: str = "noreply@localhost"
+
+
+    LOCAL: str = "true"
     
     class Config:
         env_file = ".env"
