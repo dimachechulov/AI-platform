@@ -63,5 +63,5 @@ if [ "$DEBUG_LOWER" = "true" ] || [ "$RELOAD_FLAG" = "true" ]; then
     EXTRA_UVICORN_ARGS="--reload --reload-dir /app"
 fi
 
-exec "$PYTHON_CMD" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 $EXTRA_UVICORN_ARGS
+exec "$PYTHON_CMD" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 $EXTRA_UVICORN_ARGS --workers 4
 

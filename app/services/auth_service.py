@@ -102,7 +102,7 @@ class AuthService:
                 to_email=user["email"],
                 reset_url=reset_url,
             )
-        return {"message": "Если аккаунт с таким email существует, мы отправили ссылку для сброса пароля"}
+        return {"message": "Мы отправили ссылку для сброса пароля"}
 
     def reset_password(self, db: DatabaseSession, *, token: str, new_password: str) -> dict:
         payload = decode_password_reset_token(token)
