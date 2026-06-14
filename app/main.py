@@ -10,7 +10,10 @@ setup_logging()
 app = FastAPI(
     title="Bot Platform API",
     description="Backend для платформы управления AI-ботами",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    redoc_url="/api/redoc",
 )
 
 # CORS middleware
