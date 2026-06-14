@@ -57,6 +57,27 @@ export async function getProfile(token: string): Promise<UserProfile> {
   return apiRequest("/auth/me", { token });
 }
 
+export async function requestPasswordReset(payload: {
+  email: string;
+}): Promise<{ message: string }> {
+  return apiRequest("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    retryOnAuthError: false,
+  });
+}
+
+export async function resetPassword(payload: {
+  token: string;
+  new_password: string;
+}): Promise<{ message: string }> {
+  return apiRequest("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    retryOnAuthError: false,
+  });
+}
+
 export async function listWorkspaces(token: string): Promise<Workspace[]> {
   return apiRequest("/workspaces", { token });
 }

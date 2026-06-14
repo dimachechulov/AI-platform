@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db import models as m
@@ -43,3 +43,8 @@ class AuthRepository:
             select(m.Workspace).where(m.Workspace.owner_id == owner_id).order_by(m.Workspace.created_at.desc())
         ).all()
         return [workspace_to_dict(row) for row in rows]
+
+    def update_user_password(self, db: Session, *, user_id: int, hashed_password: str) -> None:
+        db.execute(
+            update(m.User).where(m.User.id == user_id).values(hashed_password=hashed_password)
+        )

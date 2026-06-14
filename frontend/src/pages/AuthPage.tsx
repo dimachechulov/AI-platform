@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../state/auth";
 
 export function AuthPage() {
@@ -91,6 +91,13 @@ export function AuthPage() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </label>
+            {mode === "login" && (
+              <div style={{ textAlign: "right" }}>
+                <Link to="/forgot-password" className="muted">
+                  Забыли пароль?
+                </Link>
+              </div>
+            )}
           </div>
           {error && <div className="error">{error}</div>}
           <button className="btn" type="submit" disabled={loading}>

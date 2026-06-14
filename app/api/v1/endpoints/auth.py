@@ -52,6 +52,25 @@ class UserProfile(BaseModel):
         from_attributes = True
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    def validate_password_length(cls, v):
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be <= 72 bytes for bcrypt")
+        return v
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserRegister, db: DatabaseSession = Depends(get_db)):
     """Регистрация нового пользователя"""
@@ -86,4 +105,16 @@ async def get_current_user_profile(
 ):
     """Получение профиля текущего пользователя"""
     return auth_service.build_user_profile(db, current_user)
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+async def forgot_password(payload: ForgotPasswordRequest, db: DatabaseSession = Depends(get_db)):
+    """Запрос ссылки для сброса пароля"""
+    return await auth_service.request_password_reset(db, email=payload.email)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(payload: ResetPasswordRequest, db: DatabaseSession = Depends(get_db)):
+    """Установка нового пароля по токену из письма"""
+    return auth_service.reset_password(db, token=payload.token, new_password=payload.new_password)
 

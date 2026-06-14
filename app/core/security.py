@@ -45,7 +45,7 @@ def _create_token(
     data: dict,
     *,
     expires_delta: timedelta,
-    token_type: Literal["access", "refresh"],
+    token_type: Literal["access", "refresh", "password_reset"],
 ) -> str:
     payload = data.copy()
     payload.update(
@@ -76,7 +76,16 @@ def create_refresh_token(data: dict) -> str:
     )
 
 
-def _decode_token(token: str, expected_type: Literal["access", "refresh"]) -> Optional[dict]:
+def create_password_reset_token(data: dict) -> str:
+    """JWT для сброса пароля."""
+    return _create_token(
+        data,
+        expires_delta=timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+        token_type="password_reset",
+    )
+
+
+def _decode_token(token: str, expected_type: Literal["access", "refresh", "password_reset"]) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != expected_type:
@@ -94,4 +103,9 @@ def decode_access_token(token: str) -> Optional[dict]:
 def decode_refresh_token(token: str) -> Optional[dict]:
     """Декодирование refresh JWT"""
     return _decode_token(token, "refresh")
+
+
+def decode_password_reset_token(token: str) -> Optional[dict]:
+    """Декодирование JWT для сброса пароля"""
+    return _decode_token(token, "password_reset")
 
