@@ -55,6 +55,8 @@ class Settings(BaseSettings):
 
 
     LOCAL: str = "true"
+    DEBUG: str = "true"
+    UVICORN_RELOAD: str = "true"
     
     class Config:
         env_file = ".env"
