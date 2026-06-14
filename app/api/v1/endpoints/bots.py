@@ -262,4 +262,3 @@ async def delete_bot(
         owner_id=current_user["id"],
     )
     return None
-

@@ -1,7 +1,7 @@
 import datetime
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.api.dependencies import get_current_user
@@ -16,7 +16,6 @@ chat_service = ChatService(ChatRepository())
 
 class ChatMessageRequest(BaseModel):
     message: str
-    bot_id: int
     session_id: Optional[int] = None
 
 
@@ -51,10 +50,11 @@ class ChatResponse(BaseModel):
 @router.post("/", response_model=ChatResponse)
 async def send_message(
     chat_data: ChatMessageRequest,
+    bot_id: int = Query(..., description="ID бота"),
     current_user: Dict = Depends(get_current_user),
     db: DatabaseSession = Depends(get_db),
 ):
-    bot = chat_service.repository.get_bot_for_user(db, bot_id=chat_data.bot_id, user_id=current_user["id"])
+    bot = chat_service.repository.get_bot_for_user(db, bot_id=bot_id, user_id=current_user["id"])
     if not bot:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -66,7 +66,7 @@ async def send_message(
     response = await chat_service.send_message(
         db,
         user_id=current_user["id"],
-        bot_id=chat_data.bot_id,
+        bot_id=bot_id,
         message=chat_data.message,
         session_id=chat_data.session_id,
     )

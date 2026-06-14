@@ -119,3 +119,10 @@ export function clearAuthTokens() {
 
 export { API_URL };
 
+export function getChatEndpoint(botId: number): string {
+  const base = API_URL.startsWith("http")
+    ? API_URL
+    : `${window.location.origin}${API_URL.startsWith("/") ? API_URL : `/${API_URL}`}`;
+  return `${base.replace(/\/$/, "")}/chat?bot_id=${botId}`;
+}
+

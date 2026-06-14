@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { deleteBot, getWorkspacePlanLimits, listBots } from "../api";
+import { getChatEndpoint } from "../api/client";
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
 import { Bot } from "../types";
@@ -85,6 +86,7 @@ export function BotsPage() {
               <th>№</th>
               <th>Имя</th>
               <th>Пространство</th>
+              <th>Эндпоинт</th>
               <th>Создан</th>
               <th></th>
             </tr>
@@ -92,7 +94,7 @@ export function BotsPage() {
           <tbody>
             {botsQuery.isLoading && (
               <tr>
-                <td colSpan={5}>Загрузка...</td>
+                <td colSpan={6}>Загрузка...</td>
               </tr>
             )}
             {botsQuery.data?.map((bot) => (
@@ -100,6 +102,11 @@ export function BotsPage() {
                 <td>{bot.id}</td>
                 <td>{bot.name}</td>
                 <td>{bot.workspace_id}</td>
+                <td>
+                  <div style={{ fontFamily: "monospace", fontSize: 13, wordBreak: "break-all" }}>
+                    {getChatEndpoint(bot.id)}
+                  </div>
+                </td>
                 <td>{bot.created_at}</td>
                 <td className="flex gap-8">
                   {isOwner && (

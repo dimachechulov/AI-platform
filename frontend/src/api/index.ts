@@ -221,10 +221,15 @@ export async function sendChatMessage(
   token: string,
   payload: { message: string; bot_id: number; session_id?: number }
 ): Promise<{ session_id: number; message: ChatMessage; metadata?: object }> {
-  return apiRequest("/chat", {
+  const sp = new URLSearchParams({ bot_id: String(payload.bot_id) });
+  const body: { message: string; session_id?: number } = { message: payload.message };
+  if (payload.session_id != null) {
+    body.session_id = payload.session_id;
+  }
+  return apiRequest(`/chat?${sp}`, {
     method: "POST",
     token,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 }
 
