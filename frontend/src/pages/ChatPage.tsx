@@ -141,12 +141,6 @@ export function ChatPage() {
 
       <div className="card">
         <div className="chat-window">
-          {sendMutation.isPending && (
-            <div className="chat-overlay">
-              <div className="spinner large" aria-label="waiting" />
-              <div className="muted">Ждем ответ от бота...</div>
-            </div>
-          )}
           {messagesQuery.data?.map((msg: ChatMessage) => (
             <div
               key={msg.id}
