@@ -7,8 +7,6 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from langchain.callbacks.manager import CallbackManager
-from langchain.callbacks.tracers import LangChainTracer
 
 from app.core.config import settings
 
@@ -28,12 +26,12 @@ def _configure_env() -> None:
 _configure_env()
 
 
-@lru_cache(maxsize=1)
-def get_callback_manager() -> Optional[CallbackManager]:
-    """Return LangSmith callback manager if tracing is enabled."""
-    if not settings.LANGSMITH_TRACING:
-        return None
+# @lru_cache(maxsize=1)
+# def get_callback_manager() -> Optional[CallbackManager]:
+#     """Return LangSmith callback manager if tracing is enabled."""
+#     if not settings.LANGSMITH_TRACING:
+#         return None
 
-    tracer = LangChainTracer(project_name=settings.LANGSMITH_PROJECT or "bot-platform")
-    return CallbackManager([tracer])
+#     tracer = LangChainTracer(project_name=settings.LANGSMITH_PROJECT or "bot-platform")
+#     return CallbackManager([tracer])
 

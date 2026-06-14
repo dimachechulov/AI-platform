@@ -1,13 +1,16 @@
+"""RAG embeddings and retrieval via LangChain `PGVector` (langchain_community)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-import numpy as np
+from langchain_community.vectorstores import PGVector
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from app.core.config import settings
-from app.db.database import DatabaseSession, db_session
+
+# Gemini text-embedding-004 dimension
+_EMBEDDING_LENGTH = 3072
 
 
 @dataclass
@@ -16,94 +19,68 @@ class VectorSearchResult:
     metadata: Dict[str, Any]
 
 
-class VectorStore:
-    """Vector store powered by pgvector via direct psycopg2 access."""
+def _embeddings() -> GoogleGenerativeAIEmbeddings:
+    return GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=settings.GEMINI_API_KEY,
+        #request_parallelism=1,  # Отключает batch-режим
+    task_type="RETRIEVAL_DOCUMENT",
+    transport="rest",
+    )
 
-    def __init__(self) -> None:
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
-            google_api_key=settings.GEMINI_API_KEY,
-        )
 
-    def _insert_embedding(
-        self,
-        db: DatabaseSession,
-        *,
-        chunk_id: int,
-        workspace_id: int,
-        text: str,
-        metadata: Dict[str, Any],
-        embedding: List[float],
-    ) -> None:
-        # Insert or update embedding
-        db.execute(
-            """
-            INSERT INTO document_chunk_embeddings (chunk_id, workspace_id, content, embedding)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (chunk_id) DO UPDATE
-            SET content = EXCLUDED.content,
-                embedding = EXCLUDED.embedding
-            """,
-            (
-                chunk_id,
-                workspace_id,
-                text,
-                np.asarray(embedding, dtype=np.float32),
-            ),
-        )
-        
-        # Delete old metadata
-        db.execute(
-            "DELETE FROM document_chunk_metadata WHERE chunk_id = %s",
-            (chunk_id,)
-        )
-        
-        # Insert new metadata
-        if metadata:
-            for key, value in metadata.items():
-                if value is not None:
-                    db.execute(
-                        """
-                        INSERT INTO document_chunk_metadata (chunk_id, metadata_key, metadata_value)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (chunk_id, metadata_key) DO UPDATE
-                        SET metadata_value = EXCLUDED.metadata_value
-                        """,
-                        (chunk_id, key, str(value))
-                    )
+def _pgvector(workspace_id: int) -> PGVector:
+    """One LangChain collection per workspace (multi-tenant isolation)."""
+    return PGVector(
+        connection_string=settings.DATABASE_URL,
+        embedding_function=_embeddings(),
+        collection_name=f"workspace_{workspace_id}",
+        embedding_length=_EMBEDDING_LENGTH,
+        use_jsonb=True,
+    )
 
-    def add_chunks(self, workspace_id: int, chunk_payloads: List[Dict[str, Any]]) -> None:
-        """Добавление подготовленных chunk'ов в кастомный vector store."""
+
+class VectorStoreService:
+    """Thin facade over LangChain PGVector for chunk add / delete / similarity search."""
+
+    def add_chunks(self, workspace_id: int, chunk_payloads: List[Dict[str, Any]]) -> List[tuple[int, str]]:
+        """Embed texts, store in PGVector, return list of (chunk_id, langchain_row_id)."""
         if not chunk_payloads:
-            return
+            return []
 
-        texts = [payload["text"] for payload in chunk_payloads]
-        embeddings = self.embeddings.embed_documents(texts)
+        store = _pgvector(workspace_id)
+        texts = [p["text"] for p in chunk_payloads]
+        metadatas: List[Dict[str, Any]] = []
+        for p in chunk_payloads:
+            meta = dict(p["metadata"])
+            # JSON-friendly metadata for PGVector filters
+            for k, v in list(meta.items()):
+                if isinstance(v, bool):
+                    meta[k] = v
+                elif isinstance(v, (int, float)):
+                    meta[k] = v
+                elif v is not None:
+                    meta[k] = str(v)
+            metadatas.append(meta)
 
-        with db_session() as db:
-            for payload, embedding in zip(chunk_payloads, embeddings, strict=True):
-                self._insert_embedding(
-                    db,
-                    chunk_id=payload["id"],
-                    workspace_id=workspace_id,
-                    text=payload["text"],
-                    metadata=payload["metadata"],
-                    embedding=embedding,
+        ids = []
+        for text, meta in zip(texts, metadatas):
+            ids.extend(
+                store.add_texts(
+                    texts=[text],
+                    metadatas=[meta],
                 )
-
-    def delete_chunks(self, workspace_id: int, chunk_ids: List[int]) -> None:
-        """Удаление chunk'ов из vector store по их ID."""
-        if not chunk_ids:
-            return
-
-        with db_session() as db:
-            db.execute(
-                """
-                DELETE FROM document_chunk_embeddings
-                WHERE workspace_id = %s AND chunk_id = ANY(%s)
-                """,
-                (workspace_id, chunk_ids),
             )
+        out: List[tuple[int, str]] = []
+        for payload, lid in zip(chunk_payloads, ids, strict=True):
+            out.append((payload["id"], lid))
+        return out
+
+    def delete_embeddings(self, workspace_id: int, langchain_ids: List[str]) -> None:
+        if not langchain_ids:
+            return
+        store = _pgvector(workspace_id)
+        store.delete(ids=langchain_ids)
 
     def search_similar_chunks(
         self,
@@ -111,50 +88,21 @@ class VectorStore:
         query_text: str,
         k: int = 5,
     ) -> List[VectorSearchResult]:
-        """Поиск похожих chunk'ов через pgvector оператор cosine distance."""
         try:
-            query_vector = self.embeddings.embed_query(query_text)
+            store = _pgvector(workspace_id)
+            docs = store.similarity_search(query_text, k=k)
         except Exception:
             return []
 
-        with db_session() as db:
-            try:
-                rows = db.fetch_all(
-                    """
-                    SELECT dce.chunk_id, dce.content
-                    FROM document_chunk_embeddings dce
-                    WHERE dce.workspace_id = %s
-                    ORDER BY dce.embedding <=> %s
-                    LIMIT %s
-                    """,
-                    (workspace_id, np.asarray(query_vector, dtype=np.float32), k),
+        results: List[VectorSearchResult] = []
+        for doc in docs:
+            results.append(
+                VectorSearchResult(
+                    page_content=doc.page_content,
+                    metadata=dict(doc.metadata) if doc.metadata else {},
                 )
-                
-                # Fetch metadata for each chunk
-                results = []
-                for row in rows:
-                    chunk_id = row["chunk_id"]
-                    metadata_rows = db.fetch_all(
-                        "SELECT metadata_key, metadata_value FROM document_chunk_metadata WHERE chunk_id = %s",
-                        (chunk_id,)
-                    )
-                    # Build metadata dict
-                    metadata = {m["metadata_key"]: m["metadata_value"] for m in metadata_rows}
-                    
-                    results.append(
-                        VectorSearchResult(
-                            page_content=row["content"],
-                            metadata=metadata,
-                        )
-                    )
-                
-                return results
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to search chunks: {e}")
-                return []
+            )
+        return results
 
 
-vector_store = VectorStore()
-
+vector_store = VectorStoreService()

@@ -2,20 +2,26 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AppLayout } from "./components/Layout";
 import { AuthPage } from "./pages/AuthPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { ApiToolsPage } from "./pages/ApiToolsPage";
 import { BotsPage } from "./pages/BotsPage";
+import { BotsCreatePage } from "./pages/BotsCreatePage";
 import { ChatPage } from "./pages/ChatPage";
 import { BotEditPage } from "./pages/BotEditPage";
 import { ApiToolEditPage } from "./pages/ApiToolEditPage";
+import { BillingPage } from "./pages/BillingPage";
 import { WorkspaceProvider } from "./state/workspace";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<AuthPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<ProtectedRoute />}>
         <Route
           path="/"
@@ -35,8 +41,10 @@ export default function App() {
           <Route path="api-tools" element={<ApiToolsPage />} />
           <Route path="api-tools/:id" element={<ApiToolEditPage />} />
           <Route path="bots" element={<BotsPage />} />
+          <Route path="bots/new" element={<BotsCreatePage />} />
           <Route path="bots/:id" element={<BotEditPage />} />
           <Route path="chat" element={<ChatPage />} />
+          <Route path="billing" element={<BillingPage />} />
         </Route>
       </Route>
     </Routes>

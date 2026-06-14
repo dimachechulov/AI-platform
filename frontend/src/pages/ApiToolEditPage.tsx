@@ -96,15 +96,15 @@ export function ApiToolEditPage() {
     <div className="grid gap-16">
       <div className="page-header">
         <h2 className="page-title">
-          {isOwner ? "Редактирование" : "Просмотр"} API Tool #{toolId}
+          {isOwner ? "Редактирование" : "Просмотр"} API-инструмента #{toolId}
         </h2>
-        <div className="muted">Workspace: {toolQuery.data.workspace_id}</div>
+        <div className="muted">Пространство: {toolQuery.data.workspace_id}</div>
       </div>
 
       {!isOwner && (
         <div className="card" style={{ background: '#fff3cd', border: '1px solid #ffc107' }}>
           <div style={{ color: '#856404' }}>
-            ⚠️ Режим только для просмотра. Только владелец воркспейса может редактировать API Tools.
+            ⚠️ Режим только для просмотра. Только владелец воркспейса может редактировать API-инструменты.
           </div>
         </div>
       )}
@@ -160,7 +160,7 @@ export function ApiToolEditPage() {
 
           <div className="grid grid-2 gap-12">
             <label>
-              <div className="muted">Headers (JSON)</div>
+              <div className="muted">Заголовки (JSON)</div>
               <textarea
                 className="textarea"
                 value={form.headers}
@@ -170,7 +170,7 @@ export function ApiToolEditPage() {
               />
             </label>
             <label>
-              <div className="muted">Params (JSON)</div>
+              <div className="muted">Параметры (JSON)</div>
               <textarea
                 className="textarea"
                 value={form.params}
@@ -182,7 +182,7 @@ export function ApiToolEditPage() {
           </div>
 
           <label>
-            <div className="muted">Body schema (JSON)</div>
+            <div className="muted">Схема body (JSON)</div>
             <textarea
               className="textarea"
               value={form.body_schema}

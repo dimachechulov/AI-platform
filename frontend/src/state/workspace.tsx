@@ -30,6 +30,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     queryKey: ["workspaces"],
     queryFn: () => listWorkspaces(token || ""),
     enabled: !!token,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   useEffect(() => {

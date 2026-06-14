@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     
     # Gemini API
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-2.5-computer-use-preview-10-2025"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     
     # Application
     DEBUG: bool = True
@@ -34,6 +34,24 @@ class Settings(BaseSettings):
     # File upload
     MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20 MB
     UPLOAD_DIR: str = "uploads"
+
+    # Billing / Stripe
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_PRICE_LITE_ID: Optional[str] = None
+    STRIPE_PRICE_FULL_ID: Optional[str] = None
+    STRIPE_TOPUP_PRICE_ID: Optional[str] = None
+    BILLING_PORTAL_RETURN_URL: str = "http://localhost:5173/app/billing"
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+    TRIAL_DAYS: int = 14
+
+    # Password reset / SMTP
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM: str = "noreply@localhost"
     
     class Config:
         env_file = ".env"

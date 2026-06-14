@@ -3,13 +3,15 @@ Audit logs endpoints
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies import get_current_user
-from app.db import repositories as repo
 from app.db.database import DatabaseSession, get_db
+from app.db.audit_repository import AuditRepository
+from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/audit", tags=["audit"])
+audit_service = AuditService(AuditRepository())
 
 
 @router.get("/logs")
@@ -26,7 +28,7 @@ async def list_audit_logs(
     Получить список логов аудита.
     Доступно только авторизованным пользователям.
     """
-    logs = repo.list_audit_logs(
+    return audit_service.list_audit_logs(
         db,
         user_id=user_id,
         table_name=table_name,
@@ -34,20 +36,6 @@ async def list_audit_logs(
         limit=limit,
         offset=offset,
     )
-    
-    total = repo.count_audit_logs(
-        db,
-        user_id=user_id,
-        table_name=table_name,
-        action=action,
-    )
-    
-    return {
-        "logs": logs,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
 
 
 @router.get("/logs/{log_id}")
@@ -59,13 +47,5 @@ async def get_audit_log(
     """
     Получить конкретный лог аудита по ID.
     """
-    log = repo.get_audit_log_by_id(db, log_id)
-    
-    if not log:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Audit log not found",
-        )
-    
-    return log
+    return audit_service.get_audit_log(db, log_id)
 

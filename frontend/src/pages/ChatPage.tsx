@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  getWorkspacePlanLimits,
   listBots,
   listChatMessages,
   listChatSessions,
@@ -22,6 +23,11 @@ export function ChatPage() {
     queryFn: () => listBots(token || "", activeWorkspaceId),
     enabled: !!token,
     staleTime: 15_000,
+  });
+  const limitsQuery = useQuery({
+    queryKey: ["workspacePlanLimits", activeWorkspaceId],
+    queryFn: () => getWorkspacePlanLimits(token || "", activeWorkspaceId || 0),
+    enabled: !!token && !!activeWorkspaceId,
   });
 
   useEffect(() => {
@@ -64,6 +70,10 @@ export function ChatPage() {
     if (!message.trim()) return;
     sendMutation.mutate();
   };
+  const chatBlockedReason = !limitsQuery.data?.can_send_messages
+    ? limitsQuery.data?.reason ||
+      `Лимит сообщений: ${limitsQuery.data?.usage.messages}/${limitsQuery.data?.limits.max_messages ?? "∞"}`
+    : null;
 
   const handleSelectSession = (id?: number) => {
     setSelectedSessionId(id);
@@ -85,7 +95,7 @@ export function ChatPage() {
     <div className="grid gap-16">
       <div className="page-header">
         <h2 className="page-title">Чат с ботом</h2>
-        <div className="muted">Workspace: {activeWorkspaceId ?? "—"}</div>
+        <div className="muted">Пространство: {activeWorkspaceId ?? "—"}</div>
       </div>
       <div className="card">
         <div className="grid grid-2 gap-12">
@@ -102,7 +112,7 @@ export function ChatPage() {
             >
               {botsQuery.data?.map((bot: Bot) => (
                 <option key={bot.id} value={bot.id}>
-                  {bot.name} (ws {bot.workspace_id})
+                  {bot.name} (пр. {bot.workspace_id})
                 </option>
               ))}
             </select>
@@ -161,17 +171,20 @@ export function ChatPage() {
             className="textarea"
             placeholder="Сообщение боту"
             value={message}
+            disabled={!!chatBlockedReason}
             onChange={(e) => setMessage(e.target.value)}
           />
           <button
             className={`btn ${sendMutation.isPending ? "loading" : ""}`}
             type="submit"
-            disabled={sendMutation.isPending}
+            disabled={sendMutation.isPending || !!chatBlockedReason}
+            title={chatBlockedReason || undefined}
           >
             {sendMutation.isPending && <div className="spinner small" aria-label="loading" />}
             {sendMutation.isPending ? "Ожидаем ответ..." : "Отправить"}
           </button>
         </form>
+        {chatBlockedReason && <div className="error mt-8">{chatBlockedReason}</div>}
       </div>
     </div>
   );

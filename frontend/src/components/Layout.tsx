@@ -2,11 +2,11 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../state/auth";
 import { useWorkspaceContext } from "../state/workspace";
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { to: "/app", label: "Обзор" },
-  { to: "/app/workspaces", label: "Workspaces" },
+  { to: "/app/workspaces", label: "Рабочие пространства" },
   { to: "/app/documents", label: "Документы" },
-  { to: "/app/api-tools", label: "API Tools" },
+  { to: "/app/api-tools", label: "API-инструменты" },
   { to: "/app/bots", label: "Боты" },
   { to: "/app/chat", label: "Чат" },
 ];
@@ -24,7 +24,7 @@ function WorkspaceSelector() {
 
   return (
     <div>
-      <div className="muted">Workspace</div>
+      <div className="muted">Пространство</div>
       <div className="flex gap-8 mt-8">
         <select
           className="select"
@@ -47,7 +47,11 @@ function WorkspaceSelector() {
 
 export function AppLayout() {
   const { user, logout } = useAuth();
+  const { isOwner } = useWorkspaceContext();
   const navigate = useNavigate();
+  const navItems = isOwner
+    ? [...BASE_NAV_ITEMS, { to: "/app/billing", label: "Биллинг" }]
+    : BASE_NAV_ITEMS;
 
   const handleLogout = () => {
     logout();
@@ -64,7 +68,7 @@ export function AppLayout() {
           </div>
         </div>
         <nav>
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

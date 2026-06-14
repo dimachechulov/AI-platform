@@ -15,11 +15,14 @@ RUN mkdir -p /root/.cache/pip
 COPY requirements.txt .
 
 # Установка uv (для быстрого управления зависимостями)
-RUN pip install --no-cache-dir uv
+# RUN pip install --no-cache-dir uv
 
-# Установка зависимостей через uv (используется системный Python)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system -r requirements.txt
+# # Установка зависимостей через uv (используется системный Python)
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     uv pip install --system -r requirements.txt
+
+
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование приложения
 COPY . .
